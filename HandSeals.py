@@ -5,7 +5,7 @@ import cv2
 from dataloader import DataLoader
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout
 from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 
 class HandSeals(QWidget):
     def __init__(self):
@@ -75,6 +75,16 @@ class HandSeals(QWidget):
 
     def on_data_load_error(self, error):
         print(f"Error loading data: {error}")
+        self.progress_bar = QProgressBar(self)
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)  
+        self.vertical_layout.addWidget(self.progress_bar)
+
+        self.spacer = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.vertical_layout.addItem(self.spacer)
+        
+        self.setLayout(self.vertical_layout)
+        self.show()
 
     def button2_clicked(self):
         if self.images:
