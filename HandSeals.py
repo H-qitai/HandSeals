@@ -2,10 +2,55 @@ import sys
 import csv
 import numpy as np
 import cv2
+import time
 from dataloader import DataLoader
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout, QSpacerItem, QSizePolicy
 from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
+
+class DataLoader(QThread):
+    dataLoaded = pyqtSignal(list)
+    loadError = pyqtSignal(str)
+    progressUpdated = pyqtSignal(int)
+    timeLeftUpdated = pyqtSignal(int, int)  # minutes, seconds
+
+    def __init__(self, file_path):
+        super().__init__()
+        self.file_path = file_path
+        self._is_running = True
+
+    def run(self):
+        try:
+            images = []
+            with open(self.file_path, newline='') as csvfile:
+                reader = csv.reader(csvfile)
+                next(reader)  # Skip header row
+                total_rows = sum(1 for row in reader)
+                csvfile.seek(0)
+                next(reader)  # Skip header row again
+                start_time = time.time()
+
+                for i, row in enumerate(reader):
+                    if not self._is_running:
+                        break
+                    label = row[0]
+                    pixels = np.array(row[1:], dtype=np.uint8).reshape((28, 28))
+                    images.append((label, pixels))
+                    elapsed_time = time.time() - start_time
+                    rows_left = total_rows - (i + 1)
+                    time_per_row = elapsed_time / (i + 1)
+                    estimated_time_left = time_per_row * rows_left
+                    minutes_left = int(estimated_time_left // 60)
+                    seconds_left = int(estimated_time_left % 60)
+                    self.progressUpdated.emit(int((i + 1) / total_rows * 100))
+                    self.timeLeftUpdated.emit(minutes_left, seconds_left)
+            if self._is_running:
+                self.dataLoaded.emit(images)
+        except Exception as e:
+            self.loadError.emit(str(e))
+
+    def stop(self):
+        self._is_running = False
 
 class HandSeals(QWidget):
     def __init__(self):
@@ -23,10 +68,12 @@ class HandSeals(QWidget):
         # Buttons
         self.init_buttons()
 
-        # Progress Bar
+        # Progress Bar and Time Left
         self.progress_bar = QProgressBar()
         self.progress_bar.setMaximum(100)
         self.horizontal_layout.addWidget(self.progress_bar)
+        self.time_left_label = QLabel("Time left: 00:00")
+        self.horizontal_layout.addWidget(self.time_left_label)
 
         # Image Scroll Area
         self.image_scroll_area = QScrollArea(self)
@@ -57,6 +104,10 @@ class HandSeals(QWidget):
         self.test_button.clicked.connect(self.button4_clicked)
         self.horizontal_layout.addWidget(self.test_button)
 
+        self.stop_button = QPushButton('Stop Loading')
+        self.stop_button.clicked.connect(self.stop_loading)
+        self.horizontal_layout.addWidget(self.stop_button)
+
     def button1_clicked(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open CSV File", "", "CSV Files (*.csv)")
         if file_path:
@@ -67,7 +118,14 @@ class HandSeals(QWidget):
         self.data_loader.dataLoaded.connect(self.on_data_loaded)
         self.data_loader.loadError.connect(self.on_data_load_error)
         self.data_loader.progressUpdated.connect(self.progress_bar.setValue)
+        self.data_loader.timeLeftUpdated.connect(self.update_time_left)
         self.data_loader.start()
+
+    def stop_loading(self):
+        if self.data_loader and self.data_loader.isRunning():
+            self.data_loader.stop()
+            self.progress_bar.setValue(0)
+            self.time_left_label.setText("Time left: 00:00")
 
     def on_data_loaded(self, images):
         self.images = images
@@ -75,16 +133,9 @@ class HandSeals(QWidget):
 
     def on_data_load_error(self, error):
         print(f"Error loading data: {error}")
-        self.progress_bar = QProgressBar(self)
-        self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(100)  
-        self.vertical_layout.addWidget(self.progress_bar)
 
-        self.spacer = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
-        self.vertical_layout.addItem(self.spacer)
-        
-        self.setLayout(self.vertical_layout)
-        self.show()
+    def update_time_left(self, minutes, seconds):
+        self.time_left_label.setText(f"Time left: {minutes:02}:{seconds:02}")
 
     def button2_clicked(self):
         if self.images:
