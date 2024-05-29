@@ -3,54 +3,10 @@ import csv
 import numpy as np
 import cv2
 import time
-from dataloader import DataLoader
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout, QSpacerItem, QSizePolicy, QComboBox, QSlider
+from dataloader import DataLoader  # Assuming this is implemented elsewhere
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout, QLineEdit, QComboBox, QSlider
 from PyQt5.QtGui import QPixmap, QImage, QFont
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-
-class DataLoader(QThread):
-    dataLoaded = pyqtSignal(list)
-    loadError = pyqtSignal(str)
-    progressUpdated = pyqtSignal(int)
-    timeLeftUpdated = pyqtSignal(int, int)  # minutes, seconds
-
-    def __init__(self, file_path):
-        super().__init__()
-        self.file_path = file_path
-        self._is_running = True
-
-    def run(self):
-        try:
-            images = []
-            with open(self.file_path, newline='') as csvfile:
-                reader = csv.reader(csvfile)
-                next(reader)  # Skip header row
-                total_rows = sum(1 for row in reader)
-                csvfile.seek(0)
-                next(reader)  # Skip header row again
-                start_time = time.time()
-
-                for i, row in enumerate(reader):
-                    if not self._is_running:
-                        break
-                    label = row[0]
-                    pixels = np.array(row[1:], dtype=np.uint8).reshape((28, 28))
-                    images.append((label, pixels))
-                    elapsed_time = time.time() - start_time
-                    rows_left = total_rows - (i + 1)
-                    time_per_row = elapsed_time / (i + 1)
-                    estimated_time_left = time_per_row * rows_left
-                    minutes_left = int(estimated_time_left // 60)
-                    seconds_left = int(estimated_time_left % 60)
-                    self.progressUpdated.emit(int((i + 1) / total_rows * 100))
-                    self.timeLeftUpdated.emit(minutes_left, seconds_left)
-            if self._is_running:
-                self.dataLoaded.emit(images)
-        except Exception as e:
-            self.loadError.emit(str(e))
-
-    def stop(self):
-        self._is_running = False
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
 class HandSeals(QWidget):
     def __init__(self):
@@ -58,7 +14,10 @@ class HandSeals(QWidget):
         self.setWindowTitle('Hand Seals')
         self.resize(1000, 800)
         self.images = []  # This will hold the loaded images
+        self.filtered_images = []  # This will hold the filtered images
         self.current_image_index = 0  # Index to track loading progress
+        self.data_loader = None  # Initialize data_loader to None
+        self.search_bar_added = False  # Flag to check if search bar is added
         self.setupUI()
 
     def setupUI(self):
@@ -67,6 +26,11 @@ class HandSeals(QWidget):
 
         # Buttons
         self.init_buttons()
+
+        # Search bar
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Search by label...")
+        self.search_bar.textChanged.connect(self.filter_images)
 
         # Progress Bar and Time Left
         self.progress_bar = QProgressBar()
@@ -122,13 +86,16 @@ class HandSeals(QWidget):
         self.data_loader.start()
 
     def stop_loading(self):
-        if self.data_loader and self.data_loader.isRunning():
+        if self.data_loader and hasattr(self.data_loader, 'isRunning') and self.data_loader.isRunning():
             self.data_loader.stop()
             self.progress_bar.setValue(0)
             self.time_left_label.setText("Time left: 00:00")
+        else:
+            print("No data loader running")
 
     def on_data_loaded(self, images):
         self.images = images
+        self.filtered_images = images  # Initially, all images are shown
         self.progress_bar.setValue(100)
 
     def on_data_load_error(self, error):
@@ -139,16 +106,18 @@ class HandSeals(QWidget):
 
     def button2_clicked(self):
         if self.images:
+            if not self.search_bar_added:
+                self.vertical_layout.insertWidget(1, self.search_bar)  # Add search bar at the top
+                self.search_bar_added = True
             self.current_image_index = 0
-            self.clear_layout(self.image_layout)
             self.add_images_incrementally()
 
     def add_images_incrementally(self):
         batch_size = 100  # Load 100 images per batch
         start_index = self.current_image_index
-        end_index = min(start_index + batch_size, len(self.images))
+        end_index = min(start_index + batch_size, len(self.filtered_images))
         for i in range(start_index, end_index):
-            label, pixels = self.images[i]
+            label, pixels = self.filtered_images[i]
             pixmap = self.array_to_pixmap(pixels)
             label_widget = QLabel()
             label_widget.setPixmap(pixmap.scaled(100, 100, Qt.KeepAspectRatio))
@@ -163,7 +132,7 @@ class HandSeals(QWidget):
 
     def check_scroll(self, value):
         if value == self.image_scroll_area.verticalScrollBar().maximum():
-            if self.current_image_index < len(self.images):
+            if self.current_image_index < len(self.filtered_images):
                 self.add_images_incrementally()
 
     def clear_layout(self, layout):
@@ -172,29 +141,30 @@ class HandSeals(QWidget):
             if child.widget():
                 child.widget().deleteLater()
 
+    def filter_images(self):
+        search_text = self.search_bar.text().strip().lower()
+        if search_text:
+            self.filtered_images = [img for img in self.images if search_text in img[0].lower()]
+        else:
+            self.filtered_images = self.images
+        self.current_image_index = 0
+        self.clear_layout(self.image_layout)
+        self.add_images_incrementally()
+
     def button3_clicked(self):
         for i in reversed(range(self.vertical_layout.count())):
             item = self.vertical_layout.itemAt(i)
-            if item != self.horizontal_layout:
+            if item != self.horizontal_layout and item.widget() != self.search_bar:
                 widget = item.widget()
                 if widget is not None:
                     widget.deleteLater()
                 elif item.spacerItem():
                     self.vertical_layout.removeItem(item)
-
         self.training_settings()
 
-    def clear_layout(self, layout):
-        while layout.count():
-            child = layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-
-    
     def training_settings(self):
         font = QFont("Arial", 10, QFont.Bold)
         self.vertical_layout.addSpacing(30)
-
 
         self.start_training_button = QPushButton("Start Training")
         self.start_training_button.clicked.connect(self.start_training)

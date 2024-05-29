@@ -1,6 +1,7 @@
 # dataloader.py
 import csv
 import numpy as np
+import time
 from PyQt5.QtCore import QThread, pyqtSignal
 
 class DataLoader(QThread):
