@@ -4,7 +4,7 @@ import numpy as np
 import cv2
 import time
 from dataloader import DataLoader  # Assuming this is implemented elsewhere
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout, QLineEdit, QComboBox, QSlider
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout, QLineEdit, QComboBox, QSlider, QStackedWidget
 from PyQt5.QtGui import QPixmap, QImage, QFont
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
@@ -16,11 +16,11 @@ class HandSeals(QWidget):
         self.images = []  # This will hold the loaded images
         self.filtered_images = []  # This will hold the filtered images
         self.current_image_index = 0  # Index to track loading progress
-        self.data_loader = None  # Initialize data_loader to None
+        self.data_loader = None  # Thread to load data
         self.search_bar_added = False  # Flag to check if search bar is added
-        self.setupUI()
+        self.initUI()
 
-    def setupUI(self):
+    def initUI(self):
         self.vertical_layout = QVBoxLayout(self)
         self.horizontal_layout = QHBoxLayout()
 
@@ -39,14 +39,36 @@ class HandSeals(QWidget):
         self.time_left_label = QLabel("Time left: 00:00")
         self.horizontal_layout.addWidget(self.time_left_label)
 
+        # Stacked widget to switch between different views
+        self.stacked_widget = QStackedWidget()
+        self.vertical_layout.addLayout(self.horizontal_layout)
+        self.vertical_layout.addWidget(self.stacked_widget)
+
+        # Create view page
+        self.view_page = QWidget()
+        self.view_layout = QVBoxLayout(self.view_page)
+
         # Image Scroll Area
-        self.image_scroll_area = QScrollArea(self)
+        self.image_scroll_area = QScrollArea()
         self.image_scroll_area.setWidgetResizable(True)
         self.image_container = QWidget()
         self.image_layout = QGridLayout(self.image_container)
         self.image_scroll_area.setWidget(self.image_container)
-        self.vertical_layout.addLayout(self.horizontal_layout)
-        self.vertical_layout.addWidget(self.image_scroll_area)
+
+        self.view_layout.addWidget(self.search_bar)
+        self.view_layout.addWidget(self.image_scroll_area)
+
+        self.stacked_widget.addWidget(self.view_page)
+
+        # Create train page
+        self.train_page = QWidget()
+        self.train_layout = QVBoxLayout(self.train_page)
+        self.train_settings()
+
+        self.stacked_widget.addWidget(self.train_page)
+
+        # Show the initial view page
+        self.stacked_widget.setCurrentWidget(self.view_page)
 
         # Connect the scroll event
         self.image_scroll_area.verticalScrollBar().valueChanged.connect(self.check_scroll)
@@ -57,11 +79,11 @@ class HandSeals(QWidget):
         self.horizontal_layout.addWidget(self.load_data_button)
 
         self.view_button = QPushButton('View')
-        self.view_button.clicked.connect(self.button2_clicked)
+        self.view_button.clicked.connect(self.show_view_page)
         self.horizontal_layout.addWidget(self.view_button)
 
         self.train_button = QPushButton('Train')
-        self.train_button.clicked.connect(self.button3_clicked)
+        self.train_button.clicked.connect(self.show_train_page)
         self.horizontal_layout.addWidget(self.train_button)
 
         self.test_button = QPushButton('Test')
@@ -86,12 +108,12 @@ class HandSeals(QWidget):
         self.data_loader.start()
 
     def stop_loading(self):
-        if self.data_loader and hasattr(self.data_loader, 'isRunning') and self.data_loader.isRunning():
+        if self.data_loader and self.data_loader.isRunning():
             self.data_loader.stop()
             self.progress_bar.setValue(0)
             self.time_left_label.setText("Time left: 00:00")
         else:
-            print("No data loader running")
+            print("No data loading in progress")
 
     def on_data_loaded(self, images):
         self.images = images
@@ -104,12 +126,11 @@ class HandSeals(QWidget):
     def update_time_left(self, minutes, seconds):
         self.time_left_label.setText(f"Time left: {minutes:02}:{seconds:02}")
 
-    def button2_clicked(self):
+    def show_view_page(self):
+        self.stacked_widget.setCurrentWidget(self.view_page)
         if self.images:
-            if not self.search_bar_added:
-                self.vertical_layout.insertWidget(1, self.search_bar)  # Add search bar at the top
-                self.search_bar_added = True
             self.current_image_index = 0
+            self.clear_layout(self.image_layout)
             self.add_images_incrementally()
 
     def add_images_incrementally(self):
@@ -151,82 +172,72 @@ class HandSeals(QWidget):
         self.clear_layout(self.image_layout)
         self.add_images_incrementally()
 
-    def button3_clicked(self):
-        for i in reversed(range(self.vertical_layout.count())):
-            item = self.vertical_layout.itemAt(i)
-            if item != self.horizontal_layout and item.widget() != self.search_bar:
-                widget = item.widget()
-                if widget is not None:
-                    widget.deleteLater()
-                elif item.spacerItem():
-                    self.vertical_layout.removeItem(item)
-        self.training_settings()
+    def show_train_page(self):
+        self.stacked_widget.setCurrentWidget(self.train_page)
 
-    def training_settings(self):
+    def train_settings(self):
         font = QFont("Arial", 10, QFont.Bold)
-        self.vertical_layout.addSpacing(30)
 
         self.start_training_button = QPushButton("Start Training")
         self.start_training_button.clicked.connect(self.start_training)
-        self.vertical_layout.addWidget(self.start_training_button)
+        self.train_layout.addWidget(self.start_training_button)
 
-        self.vertical_layout.addSpacing(30)
-        
+        self.train_layout.addSpacing(30)
+
         self.model_label = QLabel("Select Model")
         self.model_label.setAlignment(Qt.AlignCenter)
         self.model_label.setFont(font)
-        self.vertical_layout.addWidget(self.model_label)
+        self.train_layout.addWidget(self.model_label)
 
-        self.vertical_layout.addSpacing(20)
+        self.train_layout.addSpacing(20)
 
         self.model_combo = QComboBox()
         self.model_combo.addItems(["AlexNet", "ResNet", "Inception v3"])
-        self.vertical_layout.addWidget(self.model_combo)
+        self.train_layout.addWidget(self.model_combo)
 
-        self.vertical_layout.addSpacing(60)
+        self.train_layout.addSpacing(60)
 
         self.train_test_ratio_label = QLabel("Train/Test Ratio")
         self.train_test_ratio_label.setAlignment(Qt.AlignCenter)
         self.train_test_ratio_label.setFont(font)
-        self.vertical_layout.addWidget(self.train_test_ratio_label)
-        
-        self.vertical_layout.addSpacing(20)
+        self.train_layout.addWidget(self.train_test_ratio_label)
+
+        self.train_layout.addSpacing(20)
 
         self.train_test_ratio_slider = QSlider(Qt.Horizontal)
         self.train_test_ratio_slider.setMinimumHeight(30)
         self.train_test_ratio_slider.setMinimumWidth(200)
-        self.vertical_layout.addWidget(self.train_test_ratio_slider)
+        self.train_layout.addWidget(self.train_test_ratio_slider)
 
-        self.vertical_layout.addSpacing(60)
+        self.train_layout.addSpacing(60)
 
         self.batch_size_label = QLabel("Batch Size")
         self.batch_size_label.setAlignment(Qt.AlignCenter)
         self.batch_size_label.setFont(font)
-        self.vertical_layout.addWidget(self.batch_size_label)
-        
-        self.vertical_layout.addSpacing(20)
+        self.train_layout.addWidget(self.batch_size_label)
+
+        self.train_layout.addSpacing(20)
 
         self.batch_size_slider = QSlider(Qt.Horizontal)
         self.batch_size_slider.setMinimumHeight(30)
         self.batch_size_slider.setMinimumWidth(200)
-        self.vertical_layout.addWidget(self.batch_size_slider)
+        self.train_layout.addWidget(self.batch_size_slider)
 
-        self.vertical_layout.addSpacing(60)
+        self.train_layout.addSpacing(60)
 
         self.epochs_label = QLabel("Epochs")
         self.epochs_label.setAlignment(Qt.AlignCenter)
         self.epochs_label.setFont(font)
-        self.model_label.setFont(font)
-        self.vertical_layout.addWidget(self.epochs_label)
+        self.train_layout.addWidget(self.epochs_label)
 
-        self.vertical_layout.addSpacing(20)
+        self.train_layout.addSpacing(20)
 
         self.epochs_slider = QSlider(Qt.Horizontal)
         self.epochs_slider.setMinimumHeight(30)
         self.epochs_slider.setMinimumWidth(200)
-        self.vertical_layout.addWidget(self.epochs_slider)
+        self.train_layout.addWidget(self.epochs_slider)
 
-        self.vertical_layout.addSpacing(60)
+        self.train_layout.addSpacing(60)
 
     def start_training(self):
         # Fetch selected model from the combo box
