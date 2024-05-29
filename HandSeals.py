@@ -133,11 +133,31 @@ class HandSeals(QWidget):
 
         self.vertical_layout.addSpacing(60)
 
+    def start_training(self):
+        # Fetch selected model from the combo box
+        selected_model = self.model_combo.currentText()
+        print(f'Training Started using {selected_model}')
+        # Implement the training logic based on selected model
+        if selected_model == 'AlexNet':
+            self.train_alexnet()
+        elif selected_model == 'ResNet':
+            self.train_resnet()
+        elif selected_model == 'Inception v3':
+            self.train_inception()
+
+    def train_alexnet(self):
+        print("Training AlexNet...")
+
+    def train_resnet(self):
+        print("Training ResNet...")
+
+    def train_inception(self):
+        print("Training Inception v3...")
+
     def button4_clicked(self):
         print('Testing Model')
 
-    def start_training(self):
-        print('Training Started')
+    
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
