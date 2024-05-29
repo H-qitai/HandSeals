@@ -175,6 +175,16 @@ class HandSeals(QWidget):
     def show_train_page(self):
         self.stacked_widget.setCurrentWidget(self.train_page)
 
+    def update_train_test_ratio_label(self, value):
+        self.train_test_ratio_value_label.setText(str(value))
+
+    def update_batch_size_label(self, value):
+        self.batch_size_value_label.setText(str(value))
+
+    def update_epochs_label(self, value):
+        self.epochs_value_label.setText(str(value))
+
+
     def train_settings(self):
         font = QFont("Arial", 10, QFont.Bold)
 
@@ -205,9 +215,17 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(20)
 
         self.train_test_ratio_slider = QSlider(Qt.Horizontal)
+        self.train_test_ratio_slider.setMinimum(1)  # Set the minimum value
+        self.train_test_ratio_slider.setMaximum(100)  # Set the maximum value
+        self.train_test_ratio_slider.setValue(50)  # Set the default value
         self.train_test_ratio_slider.setMinimumHeight(30)
         self.train_test_ratio_slider.setMinimumWidth(200)
+        self.train_test_ratio_slider.valueChanged.connect(self.update_train_test_ratio_label)  # Connect the signal
         self.train_layout.addWidget(self.train_test_ratio_slider)
+
+        self.train_test_ratio_value_label = QLabel("50")  # Default value display
+        self.train_test_ratio_value_label.setAlignment(Qt.AlignCenter)
+        self.train_layout.addWidget(self.train_test_ratio_value_label)
 
         self.train_layout.addSpacing(60)
 
@@ -219,9 +237,17 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(20)
 
         self.batch_size_slider = QSlider(Qt.Horizontal)
+        self.batch_size_slider.setMinimum(1)  # Set the minimum value
+        self.batch_size_slider.setMaximum(200)  # Set the maximum value
+        self.batch_size_slider.setValue(100)  # Set the default value
         self.batch_size_slider.setMinimumHeight(30)
         self.batch_size_slider.setMinimumWidth(200)
+        self.batch_size_slider.valueChanged.connect(self.update_batch_size_label)  # Connect the signal
         self.train_layout.addWidget(self.batch_size_slider)
+
+        self.batch_size_value_label = QLabel("100")  # Default value display
+        self.batch_size_value_label.setAlignment(Qt.AlignCenter)
+        self.train_layout.addWidget(self.batch_size_value_label)
 
         self.train_layout.addSpacing(60)
 
@@ -233,11 +259,20 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(20)
 
         self.epochs_slider = QSlider(Qt.Horizontal)
+        self.epochs_slider.setMinimum(1)  # Set the minimum value
+        self.epochs_slider.setMaximum(100)  # Set the maximum value
+        self.epochs_slider.setValue(30)  # Set the default value
         self.epochs_slider.setMinimumHeight(30)
         self.epochs_slider.setMinimumWidth(200)
+        self.epochs_slider.valueChanged.connect(self.update_epochs_label)  # Connect the signal
         self.train_layout.addWidget(self.epochs_slider)
 
+        self.epochs_value_label = QLabel("30")  # Default value display
+        self.epochs_value_label.setAlignment(Qt.AlignCenter)
+        self.train_layout.addWidget(self.epochs_value_label)
+
         self.train_layout.addSpacing(60)
+
 
     def start_training(self):
         # Fetch selected model from the combo box
