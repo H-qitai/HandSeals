@@ -1,8 +1,10 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QWidget, QHBoxLayout, QVBoxLayout, QSpacerItem, QSizePolicy, QLabel, QComboBox, QSlider, QPushButton
+from PyQt5.QtWidgets import QApplication, QWidget, QHBoxLayout, QVBoxLayout, QSpacerItem, QSizePolicy, QLabel, QComboBox, QSlider, QPushButton, QProgressBar, QFileDialog, QCheckBox
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import QFileDialog
+import pandas as pd
 
 class HandSeals(QWidget):
     def __init__(self):
@@ -39,6 +41,13 @@ class HandSeals(QWidget):
         self.horizontal_layout.addWidget(b4)
 
         self.vertical_layout.addLayout(self.horizontal_layout)
+
+
+        self.progress_bar = QProgressBar(self)
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)  
+        self.vertical_layout.addWidget(self.progress_bar)
+
         self.spacer = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
         self.vertical_layout.addItem(self.spacer)
         
@@ -46,7 +55,32 @@ class HandSeals(QWidget):
         self.show()
 
     def button1_clicked(self):
-        print('Data Loaded')
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        file_name, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "CSV Files (*.csv)", options=options)
+        if file_name:
+            print(f'File selected: {file_name}')
+            self.load_csv_data(file_name)
+
+    def load_csv_data(self, file_name):
+        # Assuming the file is not too large for memory but possibly lengthy to process
+        # Read the CSV file in chunks and update the progress bar
+        chunk_size = 1000
+        reader = pd.read_csv(file_name, chunksize=chunk_size)
+        total_rows = sum(1 for row in open(file_name, 'r'))
+        loaded_rows = 0
+
+        for chunk in reader:
+            # Simulate some processing
+            QtWidgets.QApplication.processEvents()  # Keep the UI responsive
+            loaded_rows += chunk.shape[0]
+            progress = int((loaded_rows / total_rows) * 100)
+            self.progress_bar.setValue(progress)
+            print(f'Loaded {loaded_rows} of {total_rows} rows')
+
+        print('Data loading complete')
+        self.progress_bar.setValue(100) 
+
     
     def button2_clicked(self):
         print('Viewing Data')
