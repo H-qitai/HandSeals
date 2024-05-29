@@ -184,6 +184,12 @@ class HandSeals(QWidget):
 
         self.training_settings()
 
+    def clear_layout(self, layout):
+        while layout.count():
+            child = layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
     
     def training_settings(self):
         font = QFont("Arial", 10, QFont.Bold)
