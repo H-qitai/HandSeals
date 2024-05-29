@@ -37,25 +37,25 @@ class BasicBlock(nn.Module):
         out = F.relu(out)  # Final ReLU after adding the residual
         return out
 
-# ResNet model definition
+# Modified ResNet model for MNIST
 class ResNet(nn.Module):
-    def __init__(self, block, layers, num_classes=1000):
+    def __init__(self, block, layers, num_classes=10):
         super(ResNet, self).__init__()
-        self.in_channels = 64
-        # Initial convolutional layer with larger receptive field
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
+        self.in_channels = 64  # Initialize the in_channels attribute here
+        self.conv1 = nn.Conv2d(3, self.in_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(self.in_channels)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
 
-        # Stacked layers using the block definitions
+        # Creating stacks of residual blocks
         self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=1)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1)
 
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))  # Adaptive average pooling to prepare for the fully connected layer
-        self.fc = nn.Linear(512 * block.expansion, num_classes)  # Final fully connected layer
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+
 
     def _make_layer(self, block, out_channels, blocks, stride=1):
         downsample = None
@@ -93,6 +93,3 @@ class ResNet(nn.Module):
         x = torch.flatten(x, 1)
         x = self.fc(x)
         return x
-
-# Example instantiation of ResNet-34
-model = ResNet(BasicBlock, [3, 4, 6, 3], num_classes=1000)
