@@ -43,11 +43,6 @@ class HandSeals(QWidget):
         # Buttons
         self.init_buttons()
 
-        # Search bar
-        self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Search by label...")
-        self.search_bar.textChanged.connect(self.filter_images)
-
         # Progress Bar and Time Left
         self.progress_bar = QProgressBar()
         self.progress_bar.setMaximum(100)
@@ -64,6 +59,11 @@ class HandSeals(QWidget):
         self.view_page = QWidget()
         self.view_layout = QVBoxLayout(self.view_page)
 
+        # Search bar
+        self.search_bar = QLineEdit()  # Initialize the search bar here
+        self.search_bar.setPlaceholderText("Search by label...")
+        self.search_bar.textChanged.connect(self.filter_images)
+
         # Image Scroll Area
         self.image_scroll_area = QScrollArea()
         self.image_scroll_area.setWidgetResizable(True)
@@ -71,7 +71,7 @@ class HandSeals(QWidget):
         self.image_layout = QGridLayout(self.image_container)
         self.image_scroll_area.setWidget(self.image_container)
 
-        self.view_layout.addWidget(self.search_bar)
+        self.view_layout.addWidget(self.search_bar)  # Now this line will work
         self.view_layout.addWidget(self.image_scroll_area)
 
         self.stacked_widget.addWidget(self.view_page)
@@ -88,23 +88,33 @@ class HandSeals(QWidget):
         self.train_progress_layout = QVBoxLayout(self.train_progress_page)
         self.train_progress_bar = QProgressBar()
         self.train_progress_layout.addWidget(self.train_progress_bar)
-        
+
+        # Labels for epoch, batch, and accuracy
         self.epoch_label = QLabel("Epoch: 0/0")
         self.train_progress_layout.addWidget(self.epoch_label)
-        
+
         self.batch_label = QLabel("Batch: 0/0")
         self.train_progress_layout.addWidget(self.batch_label)
-        
+
+        self.accuracy_label = QLabel("Accuracy: 0%")
+        self.train_progress_layout.addWidget(self.accuracy_label)
+
+        # Create a horizontal layout for the graphs
+        self.graph_layout = QHBoxLayout()
+
+        # Add Matplotlib plots
+        self.val_accuracy_canvas = MplCanvas(self, width=5, height=4, dpi=100)
+        self.graph_layout.addWidget(self.val_accuracy_canvas)
+
+        self.train_loss_canvas = MplCanvas(self, width=5, height=4, dpi=100)
+        self.graph_layout.addWidget(self.train_loss_canvas)
+
+        # Add the horizontal graph layout to the train progress layout
+        self.train_progress_layout.addLayout(self.graph_layout)
+
         self.stop_training_button = QPushButton('Stop Training')
         self.stop_training_button.clicked.connect(self.stop_training)
         self.train_progress_layout.addWidget(self.stop_training_button)
-        
-        # Add Matplotlib plots
-        self.train_loss_canvas = MplCanvas(self, width=5, height=4, dpi=100)
-        self.train_progress_layout.addWidget(self.train_loss_canvas)
-        
-        self.val_accuracy_canvas = MplCanvas(self, width=5, height=4, dpi=100)
-        self.train_progress_layout.addWidget(self.val_accuracy_canvas)
 
         self.stacked_widget.addWidget(self.train_progress_page)
 
@@ -113,6 +123,8 @@ class HandSeals(QWidget):
 
         # Connect the scroll event
         self.image_scroll_area.verticalScrollBar().valueChanged.connect(self.check_scroll)
+
+
 
     def init_buttons(self):
         self.load_data_button = QPushButton('Load Data')
@@ -264,7 +276,7 @@ class HandSeals(QWidget):
 
         self.train_test_ratio_slider = QSlider(Qt.Horizontal)
         self.train_test_ratio_slider.setMinimum(1)
-        self.train_test_ratio_slider.setMaximum(100)
+        self.train_test_ratio_slider.setMaximum(99)
         self.train_test_ratio_slider.setValue(50)
         self.train_test_ratio_slider.setMinimumHeight(30)
         self.train_test_ratio_slider.setMinimumWidth(200)
@@ -285,7 +297,7 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(20)
 
         self.batch_size_slider = QSlider(Qt.Horizontal)
-        self.batch_size_slider.setMinimum(1)
+        self.batch_size_slider.setMinimum(25)
         self.batch_size_slider.setMaximum(200)
         self.batch_size_slider.setValue(100)
         self.batch_size_slider.setMinimumHeight(30)
@@ -307,7 +319,7 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(20)
 
         self.epochs_slider = QSlider(Qt.Horizontal)
-        self.epochs_slider.setMinimum(1)
+        self.epochs_slider.setMinimum(2)
         self.epochs_slider.setMaximum(100)
         self.epochs_slider.setValue(30)
         self.epochs_slider.setMinimumHeight(30)
@@ -322,20 +334,34 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(60)
 
     def start_training(self):
+        if not self.images:
+            print("No data loaded. Please load data before starting training.")
+            return
+
         selected_model = self.model_combo.currentText()
-        batch_size = self.batch_size_slider.value()
+        batch_size = max(self.batch_size_slider.value(), 4)  # Ensure batch size is at least 4
         epochs = self.epochs_slider.value()
         train_test_ratio = self.train_test_ratio_slider.value() / 100.0
 
         transform = transforms.Compose([
-            transforms.Grayscale(num_output_channels=1),  # Convert to grayscale
+            transforms.Grayscale(num_output_channels=1),  # Convert to grayscale if needed
             transforms.Resize((28, 28)),
             transforms.ToTensor(),  # Converts to FloatTensor and scales the values to [0, 1]
         ])
 
         dataset = HandSealDataset(self.images, transform=transform)  # Use HandSealDataset for images
+
+        # Ensure there are enough samples for training and testing
+        if len(dataset) == 0:
+            print("Dataset is empty. Please load valid data.")
+            return
+
         train_size = int(len(dataset) * train_test_ratio)
         test_size = len(dataset) - train_size
+        if train_size == 0 or test_size == 0:
+            print("Insufficient data for training and testing. Adjust the train/test ratio or load more data.")
+            return
+
         train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -363,18 +389,24 @@ class HandSeals(QWidget):
     def update_train_loss_plot(self, train_losses):
         self.train_loss_canvas.ax.clear()
         self.train_loss_canvas.ax.plot(range(len(train_losses)), train_losses, 'r-')
-        self.train_loss_canvas.ax.set_title('Training Loss')
-        self.train_loss_canvas.ax.set_xlabel('Epoch')
-        self.train_loss_canvas.ax.set_ylabel('Loss')
+        self.train_loss_canvas.ax.set_title('Training Loss', fontsize=14)
+        self.train_loss_canvas.ax.set_xlabel('Epoch', fontsize=10)
+        self.train_loss_canvas.ax.set_ylabel('Loss', fontsize=10)
+        self.val_accuracy_canvas.ax.grid(True)  # Add grid
         self.train_loss_canvas.draw()
 
     def update_val_accuracy_plot(self, val_accuracies):
         self.val_accuracy_canvas.ax.clear()
         self.val_accuracy_canvas.ax.plot(range(len(val_accuracies)), val_accuracies, 'b-')
-        self.val_accuracy_canvas.ax.set_title('Validation Accuracy')
-        self.val_accuracy_canvas.ax.set_xlabel('Epoch')
-        self.val_accuracy_canvas.ax.set_ylabel('Accuracy')
+        self.val_accuracy_canvas.ax.set_title('Validation Accuracy Over Epochs', fontsize=14)
+        self.val_accuracy_canvas.ax.set_xlabel('Epoch', fontsize=10)
+        self.val_accuracy_canvas.ax.set_ylabel('Accuracy (%)', fontsize=10)
+        self.val_accuracy_canvas.ax.grid(True)  # Add grid
         self.val_accuracy_canvas.draw()
+
+        # Update the accuracy label with the latest accuracy
+        if val_accuracies:
+            self.accuracy_label.setText(f"Accuracy: {val_accuracies[-1]:.2f}%")
 
     def update_epoch_label(self, epoch, loss):
         self.epoch_label.setText(f"Epoch: {epoch}/{self.epochs_slider.value()} - Loss: {loss:.4f}")
