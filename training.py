@@ -26,7 +26,7 @@ class TrainingThreadResnet(QThread):
     def run(self):
         model = ResNet(BasicBlock, [2, 2, 2, 2], num_classes=36).to(self.device)
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+        optimizer = optim.SGD(model.parameters(), lr=0.0001, momentum=0.9)
 
         train_losses = []
         val_accuracies = []
@@ -98,7 +98,7 @@ class TrainingThreadInceptionV1(QThread):
     def run(self):
         model = InceptionV1(num_classes=36).to(self.device)
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(model.parameters(), lr=0.00001, momentum=0.9)
+        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
         
         train_losses = []
         val_accuracies = []
@@ -171,7 +171,7 @@ class TrainingThreadAlexNet(QThread):
     def run(self):
         model = AlexNet(num_classes=36).to(self.device)
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+        optimizer = optim.SGD(model.parameters(), lr=0.05, momentum=0.9)
         
         train_losses = []
         val_accuracies = []
