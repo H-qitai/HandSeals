@@ -3,10 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class InceptionV1(nn.Module):
-    def __init__(self, num_classes=10):
+    def __init__(self, num_classes=36):
         super(InceptionV1, self).__init__()
         # Initial convolution layers to process the input image
-        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, stride=1)  # First conv layer with 32 filters
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=1)
         self.conv2 = nn.Conv2d(32, 32, kernel_size=3, stride=1)  # Second conv layer, keeps the channel size
         self.conv3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)  # Third conv layer, increases channels to 64, with padding
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)  # Pooling to reduce the spatial size

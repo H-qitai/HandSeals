@@ -12,14 +12,15 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
-from resNet50 import ResNet, BasicBlock
+# from resNet50 import ResNet, BasicBlock
 from dataloader import CSVDataLoader
-from training import TrainingThread
+from training import TrainingThreadResnet, TrainingThreadInceptionV1, TrainingThreadAlexNet
 from dataset import HandSealDataset
+# from inceptionV1 import InceptionV1
 from torchvision import transforms
 
 class MplCanvas(FigureCanvas):
-    def __init__(self, parent=None, width=5, height=4, dpi=100):
+    def __init__(self, parent=None, width=6, height=5, dpi=100):
         fig, self.ax = plt.subplots(figsize=(width, height), dpi=dpi)
         super(MplCanvas, self).__init__(fig)
 
@@ -166,17 +167,21 @@ class HandSeals(QWidget):
         self.progress_bar.setValue(0)
         self.time_left_label.setText("Time left: 00:00")
         self.stop_button.setEnabled(False)  # Disable stop button when loading stops
+        if not self.images:  # Disable start training button if no images are loaded
+            self.start_training_button.setEnabled(False)
 
     def on_data_loaded(self, images):
         self.images = images
         self.filtered_images = images
         self.progress_bar.setValue(100)
         self.stop_button.setEnabled(False)  # Disable stop button when loading completes
+        if self.images:  # Enable start training button if images are loaded
+            self.start_training_button.setEnabled(True)
 
     def on_data_load_error(self, error):
         print(f"Error loading data: {error}")
         self.stop_button.setEnabled(False)  # Disable stop button if loading encounters an error
-
+        self.start_training_button.setEnabled(False) 
 
     def update_time_left(self, minutes, seconds):
         self.time_left_label.setText(f"Time left: {minutes:02}:{seconds:02}")
@@ -252,6 +257,7 @@ class HandSeals(QWidget):
 
         self.start_training_button = QPushButton("Start Training")
         self.start_training_button.clicked.connect(self.start_training)
+        self.start_training_button.setEnabled(False)
         self.train_layout.addWidget(self.start_training_button)
 
         self.train_layout.addSpacing(30)
@@ -264,7 +270,7 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(20)
 
         self.model_combo = QComboBox()
-        self.model_combo.addItems(["AlexNet", "ResNet", "Inception v3"])
+        self.model_combo.addItems(["AlexNet", "ResNet", "Inception V1"])
         self.train_layout.addWidget(self.model_combo)
 
         self.train_layout.addSpacing(60)
@@ -279,13 +285,13 @@ class HandSeals(QWidget):
         self.train_test_ratio_slider = QSlider(Qt.Horizontal)
         self.train_test_ratio_slider.setMinimum(1)
         self.train_test_ratio_slider.setMaximum(99)
-        self.train_test_ratio_slider.setValue(50)
+        self.train_test_ratio_slider.setValue(80)
         self.train_test_ratio_slider.setMinimumHeight(30)
         self.train_test_ratio_slider.setMinimumWidth(200)
         self.train_test_ratio_slider.valueChanged.connect(self.update_train_test_ratio_label)
         self.train_layout.addWidget(self.train_test_ratio_slider)
 
-        self.train_test_ratio_value_label = QLabel("50")
+        self.train_test_ratio_value_label = QLabel("80")
         self.train_test_ratio_value_label.setAlignment(Qt.AlignCenter)
         self.train_layout.addWidget(self.train_test_ratio_value_label)
 
@@ -336,12 +342,9 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(60)
 
     def start_training(self):
-        if not self.images:
-            print("No data loaded. Please load data before starting training.")
-            return
 
         selected_model = self.model_combo.currentText()
-        batch_size = max(self.batch_size_slider.value(), 4)  # Ensure batch size is at least 4
+        batch_size = self.batch_size_slider.value()
         epochs = self.epochs_slider.value()
         train_test_ratio = self.train_test_ratio_slider.value() / 100.0
 
@@ -373,20 +376,8 @@ class HandSeals(QWidget):
             self.train_alexnet(train_loader, test_loader, epochs)
         elif selected_model == 'ResNet':
             self.train_resnet(train_loader, test_loader, epochs)
-        elif selected_model == 'Inception v3':
-            self.train_inception(train_loader, test_loader, epochs)
-
-    def train_resnet(self, train_loader, test_loader, epochs):
-        self.stacked_widget.setCurrentWidget(self.train_progress_page)
-        self.training_thread = TrainingThread(train_loader, test_loader, epochs)
-        self.train_loader = train_loader
-        self.training_thread.progress_updated.connect(self.train_progress_bar.setValue)
-        self.training_thread.training_stopped.connect(self.on_training_stopped)
-        self.training_thread.epoch_updated.connect(self.update_epoch_label)
-        self.training_thread.batch_updated.connect(self.update_batch_label)
-        self.training_thread.train_loss_updated.connect(self.update_train_loss_plot)
-        self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
-        self.training_thread.start()
+        elif selected_model == 'Inception V1':
+            self.train_inceptionV1(train_loader, test_loader, epochs)
 
     def update_train_loss_plot(self, train_losses):
         self.train_loss_canvas.ax.clear()
@@ -444,10 +435,40 @@ class HandSeals(QWidget):
         self.update_val_accuracy_plot(self.training_thread.final_val_accuracies)
 
     def train_alexnet(self, train_loader, test_loader, epochs):
-        print("Training AlexNet...")
+        self.stacked_widget.setCurrentWidget(self.train_progress_page)
+        self.training_thread = TrainingThreadAlexNet(train_loader, test_loader, epochs)
+        self.train_loader = train_loader
+        self.training_thread.progress_updated.connect(self.train_progress_bar.setValue)
+        self.training_thread.training_stopped.connect(self.on_training_stopped)
+        self.training_thread.epoch_updated.connect(self.update_epoch_label)
+        self.training_thread.batch_updated.connect(self.update_batch_label)
+        self.training_thread.train_loss_updated.connect(self.update_train_loss_plot)
+        self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
+        self.training_thread.start()
 
-    def train_inception(self, train_loader, test_loader, epochs):
-        print("Training Inception v3...")
+    def train_inceptionV1(self, train_loader, test_loader, epochs):
+        self.stacked_widget.setCurrentWidget(self.train_progress_page)
+        self.training_thread = TrainingThreadInceptionV1(train_loader, test_loader, epochs)
+        self.train_loader = train_loader
+        self.training_thread.progress_updated.connect(self.train_progress_bar.setValue)
+        self.training_thread.training_stopped.connect(self.on_training_stopped)
+        self.training_thread.epoch_updated.connect(self.update_epoch_label)
+        self.training_thread.batch_updated.connect(self.update_batch_label)
+        self.training_thread.train_loss_updated.connect(self.update_train_loss_plot)
+        self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
+        self.training_thread.start()
+
+    def train_resnet(self, train_loader, test_loader, epochs):
+        self.stacked_widget.setCurrentWidget(self.train_progress_page)
+        self.training_thread = TrainingThreadResnet(train_loader, test_loader, epochs)
+        self.train_loader = train_loader
+        self.training_thread.progress_updated.connect(self.train_progress_bar.setValue)
+        self.training_thread.training_stopped.connect(self.on_training_stopped)
+        self.training_thread.epoch_updated.connect(self.update_epoch_label)
+        self.training_thread.batch_updated.connect(self.update_batch_label)
+        self.training_thread.train_loss_updated.connect(self.update_train_loss_plot)
+        self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
+        self.training_thread.start()
 
     def button4_clicked(self):
         print("Testing...")

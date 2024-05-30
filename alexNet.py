@@ -3,12 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class AlexNet(nn.Module):
-    def __init__(self, num_classes=10):  # Initialize the AlexNet model with a configurable number of output classes
+    def __init__(self, num_classes=36):  # Initialize the AlexNet model with a configurable number of output classes
         super(AlexNet, self).__init__()  # Call the initializer of the parent nn.Module class
         # Feature extraction layers
         self.features = nn.Sequential(
             # First convolutional layer with 64 output channels, kernel size 3, stride 1, and padding 1
-            nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(inplace=True),  # Activation function to introduce non-linearity (in-place to save memory)
             nn.MaxPool2d(kernel_size=2, stride=2),  # First pooling layer to reduce spatial dimensions
             
