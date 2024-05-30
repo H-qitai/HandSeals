@@ -125,7 +125,6 @@ class HandSeals(QWidget):
         self.image_scroll_area.verticalScrollBar().valueChanged.connect(self.check_scroll)
 
 
-
     def init_buttons(self):
         self.load_data_button = QPushButton('Load Data')
         self.load_data_button.clicked.connect(self.button1_clicked)
@@ -145,6 +144,7 @@ class HandSeals(QWidget):
 
         self.stop_button = QPushButton('Stop Loading')
         self.stop_button.clicked.connect(self.stop_loading)
+        self.stop_button.setEnabled(False)  # Initially disabled
         self.horizontal_layout.addWidget(self.stop_button)
 
     def button1_clicked(self):
@@ -158,23 +158,25 @@ class HandSeals(QWidget):
         self.data_loader.loadError.connect(self.on_data_load_error)
         self.data_loader.progressUpdated.connect(self.progress_bar.setValue)
         self.data_loader.timeLeftUpdated.connect(self.update_time_left)
+        self.stop_button.setEnabled(True)  # Enable stop button when loading starts
         self.data_loader.start()
 
     def stop_loading(self):
-        if self.data_loader and self.data_loader.isRunning():
-            self.data_loader.stop()
-            self.progress_bar.setValue(0)
-            self.time_left_label.setText("Time left: 00:00")
-        else:
-            print("No data loading in progress")
+        self.data_loader.stop()
+        self.progress_bar.setValue(0)
+        self.time_left_label.setText("Time left: 00:00")
+        self.stop_button.setEnabled(False)  # Disable stop button when loading stops
 
     def on_data_loaded(self, images):
         self.images = images
         self.filtered_images = images
         self.progress_bar.setValue(100)
+        self.stop_button.setEnabled(False)  # Disable stop button when loading completes
 
     def on_data_load_error(self, error):
         print(f"Error loading data: {error}")
+        self.stop_button.setEnabled(False)  # Disable stop button if loading encounters an error
+
 
     def update_time_left(self, minutes, seconds):
         self.time_left_label.setText(f"Time left: {minutes:02}:{seconds:02}")
@@ -425,7 +427,21 @@ class HandSeals(QWidget):
 
     def on_training_stopped(self):
         print("Training Stopped")
-        self.stacked_widget.setCurrentWidget(self.train_page)
+        # Ensure that the train progress page is still visible
+        self.stacked_widget.setCurrentWidget(self.train_progress_page)
+
+        # Disable the stop training button since training has stopped
+        self.stop_training_button.setDisabled(True)
+
+        # Re-enable the start training button for possible new training sessions
+        self.start_training_button.setEnabled(True)
+
+        # Ensure the progress bar reflects the complete state if training finished normally
+        self.train_progress_bar.setValue(100)
+
+        # Final updates to the plots to ensure they show the last state
+        self.update_train_loss_plot(self.training_thread.final_train_losses)
+        self.update_val_accuracy_plot(self.training_thread.final_val_accuracies)
 
     def train_alexnet(self, train_loader, test_loader, epochs):
         print("Training AlexNet...")

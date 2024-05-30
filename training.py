@@ -25,9 +25,11 @@ class TrainingThread(QThread):
         model = ResNet(BasicBlock, [2, 2, 2, 2], num_classes=36).to(self.device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-        
+
         train_losses = []
         val_accuracies = []
+        self.final_train_losses = []  # Store final losses here
+        self.final_val_accuracies = []  # Store final accuracies here
 
         for epoch in range(self.epochs):
             if not self._is_running:
@@ -67,6 +69,8 @@ class TrainingThread(QThread):
             accuracy = 100 * correct / total
             val_accuracies.append(accuracy)
             self.val_accuracy_updated.emit(val_accuracies)
+            self.final_train_losses.append(avg_train_loss)
+            self.final_val_accuracies.append(accuracy)
 
         self.training_stopped.emit()
 
