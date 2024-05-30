@@ -4,7 +4,7 @@ import numpy as np
 import time
 from PyQt5.QtCore import QThread, pyqtSignal
 
-class DataLoader(QThread):
+class CSVDataLoader(QThread):
     dataLoaded = pyqtSignal(list)
     loadError = pyqtSignal(str)
     progressUpdated = pyqtSignal(int)
@@ -26,11 +26,14 @@ class DataLoader(QThread):
                 next(reader)  # Skip header row again
                 start_time = time.time()
 
+                # Remove or update the bounds check
                 for i, row in enumerate(reader):
                     if not self._is_running:
                         break
-                    label = row[0]
-                    pixels = np.array(row[1:], dtype=np.uint8).reshape((28, 28))
+                    label = int(row[0])
+                    if label < 0 or label >= 36:  # Update the range if you have a different number of classes
+                        raise ValueError(f"Label out of bounds: {label}")
+                    pixels = np.array(row[1:], dtype=np.uint8).reshape((1, 28, 28))
                     images.append((label, pixels))
                     elapsed_time = time.time() - start_time
                     rows_left = total_rows - (i + 1)
@@ -47,6 +50,3 @@ class DataLoader(QThread):
 
     def stop(self):
         self._is_running = False
-
-
-

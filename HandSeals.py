@@ -1,23 +1,39 @@
 import sys
-import csv
-import numpy as np
 import cv2
-import time
-from dataloader import DataLoader  # Assuming this is implemented elsewhere
+import numpy as np
+import random
+import matplotlib.pyplot as plt
+from PIL import Image
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout, QLineEdit, QComboBox, QSlider, QStackedWidget
 from PyQt5.QtGui import QPixmap, QImage, QFont
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
+import torch
+import torch.optim as optim
+import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset, random_split
+from resNet50 import ResNet, BasicBlock
+from dataloader import CSVDataLoader
+from training import TrainingThread
+from dataset import HandSealDataset
+from torchvision import transforms
+
+class MplCanvas(FigureCanvas):
+    def __init__(self, parent=None, width=5, height=4, dpi=100):
+        fig, self.ax = plt.subplots(figsize=(width, height), dpi=dpi)
+        super(MplCanvas, self).__init__(fig)
 
 class HandSeals(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('Hand Seals')
         self.resize(1000, 800)
-        self.images = []  # This will hold the loaded images
-        self.filtered_images = []  # This will hold the filtered images
-        self.current_image_index = 0  # Index to track loading progress
-        self.data_loader = None  # Thread to load data
-        self.search_bar_added = False  # Flag to check if search bar is added
+        self.images = []
+        self.filtered_images = []
+        self.current_image_index = 0
+        self.data_loader = None
+        self.search_bar_added = False
+        self.training_thread = None
         self.initUI()
 
     def initUI(self):
@@ -67,6 +83,31 @@ class HandSeals(QWidget):
 
         self.stacked_widget.addWidget(self.train_page)
 
+        # Training progress page
+        self.train_progress_page = QWidget()
+        self.train_progress_layout = QVBoxLayout(self.train_progress_page)
+        self.train_progress_bar = QProgressBar()
+        self.train_progress_layout.addWidget(self.train_progress_bar)
+        
+        self.epoch_label = QLabel("Epoch: 0/0")
+        self.train_progress_layout.addWidget(self.epoch_label)
+        
+        self.batch_label = QLabel("Batch: 0/0")
+        self.train_progress_layout.addWidget(self.batch_label)
+        
+        self.stop_training_button = QPushButton('Stop Training')
+        self.stop_training_button.clicked.connect(self.stop_training)
+        self.train_progress_layout.addWidget(self.stop_training_button)
+        
+        # Add Matplotlib plots
+        self.train_loss_canvas = MplCanvas(self, width=5, height=4, dpi=100)
+        self.train_progress_layout.addWidget(self.train_loss_canvas)
+        
+        self.val_accuracy_canvas = MplCanvas(self, width=5, height=4, dpi=100)
+        self.train_progress_layout.addWidget(self.val_accuracy_canvas)
+
+        self.stacked_widget.addWidget(self.train_progress_page)
+
         # Show the initial view page
         self.stacked_widget.setCurrentWidget(self.view_page)
 
@@ -100,7 +141,7 @@ class HandSeals(QWidget):
             self.load_data(file_path)
 
     def load_data(self, file_path):
-        self.data_loader = DataLoader(file_path)
+        self.data_loader = CSVDataLoader(file_path)
         self.data_loader.dataLoaded.connect(self.on_data_loaded)
         self.data_loader.loadError.connect(self.on_data_load_error)
         self.data_loader.progressUpdated.connect(self.progress_bar.setValue)
@@ -117,7 +158,7 @@ class HandSeals(QWidget):
 
     def on_data_loaded(self, images):
         self.images = images
-        self.filtered_images = images  # Initially, all images are shown
+        self.filtered_images = images
         self.progress_bar.setValue(100)
 
     def on_data_load_error(self, error):
@@ -134,7 +175,7 @@ class HandSeals(QWidget):
             self.add_images_incrementally()
 
     def add_images_incrementally(self):
-        batch_size = 100  # Load 100 images per batch
+        batch_size = 100
         start_index = self.current_image_index
         end_index = min(start_index + batch_size, len(self.filtered_images))
         for i in range(start_index, end_index):
@@ -146,9 +187,17 @@ class HandSeals(QWidget):
         self.current_image_index = end_index
 
     def array_to_pixmap(self, array):
-        image = cv2.cvtColor(array, cv2.COLOR_GRAY2RGB)
-        bytes_per_line = 3 * array.shape[1]
-        q_image = QImage(image.data, array.shape[1], array.shape[0], bytes_per_line, QImage.Format_RGB888)
+        if len(array.shape) == 2:  # Grayscale image
+            image = cv2.cvtColor(array, cv2.COLOR_GRAY2RGB)
+        elif len(array.shape) == 3 and array.shape[0] == 1:  # Grayscale image with channel dimension
+            image = cv2.cvtColor(array[0], cv2.COLOR_GRAY2RGB)
+        elif len(array.shape) == 3 and array.shape[0] == 3:  # RGB image
+            image = array.transpose(1, 2, 0)  # Convert from (C, H, W) to (H, W, C)
+        else:
+            raise ValueError("Invalid image shape")
+
+        bytes_per_line = 3 * image.shape[1]
+        q_image = QImage(image.data, image.shape[1], image.shape[0], bytes_per_line, QImage.Format_RGB888)
         return QPixmap.fromImage(q_image)
 
     def check_scroll(self, value):
@@ -165,7 +214,7 @@ class HandSeals(QWidget):
     def filter_images(self):
         search_text = self.search_bar.text().strip().lower()
         if search_text:
-            self.filtered_images = [img for img in self.images if search_text in img[0].lower()]
+            self.filtered_images = [img for img in self.images if search_text in str(img[0]).lower()]
         else:
             self.filtered_images = self.images
         self.current_image_index = 0
@@ -183,7 +232,6 @@ class HandSeals(QWidget):
 
     def update_epochs_label(self, value):
         self.epochs_value_label.setText(str(value))
-
 
     def train_settings(self):
         font = QFont("Arial", 10, QFont.Bold)
@@ -215,15 +263,15 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(20)
 
         self.train_test_ratio_slider = QSlider(Qt.Horizontal)
-        self.train_test_ratio_slider.setMinimum(1)  # Set the minimum value
-        self.train_test_ratio_slider.setMaximum(100)  # Set the maximum value
-        self.train_test_ratio_slider.setValue(50)  # Set the default value
+        self.train_test_ratio_slider.setMinimum(1)
+        self.train_test_ratio_slider.setMaximum(100)
+        self.train_test_ratio_slider.setValue(50)
         self.train_test_ratio_slider.setMinimumHeight(30)
         self.train_test_ratio_slider.setMinimumWidth(200)
-        self.train_test_ratio_slider.valueChanged.connect(self.update_train_test_ratio_label)  # Connect the signal
+        self.train_test_ratio_slider.valueChanged.connect(self.update_train_test_ratio_label)
         self.train_layout.addWidget(self.train_test_ratio_slider)
 
-        self.train_test_ratio_value_label = QLabel("50")  # Default value display
+        self.train_test_ratio_value_label = QLabel("50")
         self.train_test_ratio_value_label.setAlignment(Qt.AlignCenter)
         self.train_layout.addWidget(self.train_test_ratio_value_label)
 
@@ -237,15 +285,15 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(20)
 
         self.batch_size_slider = QSlider(Qt.Horizontal)
-        self.batch_size_slider.setMinimum(1)  # Set the minimum value
-        self.batch_size_slider.setMaximum(200)  # Set the maximum value
-        self.batch_size_slider.setValue(100)  # Set the default value
+        self.batch_size_slider.setMinimum(1)
+        self.batch_size_slider.setMaximum(200)
+        self.batch_size_slider.setValue(100)
         self.batch_size_slider.setMinimumHeight(30)
         self.batch_size_slider.setMinimumWidth(200)
-        self.batch_size_slider.valueChanged.connect(self.update_batch_size_label)  # Connect the signal
+        self.batch_size_slider.valueChanged.connect(self.update_batch_size_label)
         self.train_layout.addWidget(self.batch_size_slider)
 
-        self.batch_size_value_label = QLabel("100")  # Default value display
+        self.batch_size_value_label = QLabel("100")
         self.batch_size_value_label.setAlignment(Qt.AlignCenter)
         self.train_layout.addWidget(self.batch_size_value_label)
 
@@ -259,40 +307,98 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(20)
 
         self.epochs_slider = QSlider(Qt.Horizontal)
-        self.epochs_slider.setMinimum(1)  # Set the minimum value
-        self.epochs_slider.setMaximum(100)  # Set the maximum value
-        self.epochs_slider.setValue(30)  # Set the default value
+        self.epochs_slider.setMinimum(1)
+        self.epochs_slider.setMaximum(100)
+        self.epochs_slider.setValue(30)
         self.epochs_slider.setMinimumHeight(30)
         self.epochs_slider.setMinimumWidth(200)
-        self.epochs_slider.valueChanged.connect(self.update_epochs_label)  # Connect the signal
+        self.epochs_slider.valueChanged.connect(self.update_epochs_label)
         self.train_layout.addWidget(self.epochs_slider)
 
-        self.epochs_value_label = QLabel("30")  # Default value display
+        self.epochs_value_label = QLabel("30")
         self.epochs_value_label.setAlignment(Qt.AlignCenter)
         self.train_layout.addWidget(self.epochs_value_label)
 
         self.train_layout.addSpacing(60)
 
-
     def start_training(self):
-        # Fetch selected model from the combo box
         selected_model = self.model_combo.currentText()
-        print(f'Training Started using {selected_model}')
-        # Implement the training logic based on selected model
-        if selected_model == 'AlexNet':
-            self.train_alexnet()
-        elif selected_model == 'ResNet':
-            self.train_resnet()
-        elif selected_model == 'Inception v3':
-            self.train_inception()
+        batch_size = self.batch_size_slider.value()
+        epochs = self.epochs_slider.value()
+        train_test_ratio = self.train_test_ratio_slider.value() / 100.0
 
-    def train_alexnet(self):
+        transform = transforms.Compose([
+            transforms.Grayscale(num_output_channels=1),  # Convert to grayscale
+            transforms.Resize((28, 28)),
+            transforms.ToTensor(),  # Converts to FloatTensor and scales the values to [0, 1]
+        ])
+
+        dataset = HandSealDataset(self.images, transform=transform)  # Use HandSealDataset for images
+        train_size = int(len(dataset) * train_test_ratio)
+        test_size = len(dataset) - train_size
+        train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+        if selected_model == 'AlexNet':
+            self.train_alexnet(train_loader, test_loader, epochs)
+        elif selected_model == 'ResNet':
+            self.train_resnet(train_loader, test_loader, epochs)
+        elif selected_model == 'Inception v3':
+            self.train_inception(train_loader, test_loader, epochs)
+
+    def train_resnet(self, train_loader, test_loader, epochs):
+        self.stacked_widget.setCurrentWidget(self.train_progress_page)
+        self.training_thread = TrainingThread(train_loader, test_loader, epochs)
+        self.train_loader = train_loader
+        self.training_thread.progress_updated.connect(self.train_progress_bar.setValue)
+        self.training_thread.training_stopped.connect(self.on_training_stopped)
+        self.training_thread.epoch_updated.connect(self.update_epoch_label)
+        self.training_thread.batch_updated.connect(self.update_batch_label)
+        self.training_thread.train_loss_updated.connect(self.update_train_loss_plot)
+        self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
+        self.training_thread.start()
+
+    def update_train_loss_plot(self, train_losses):
+        self.train_loss_canvas.ax.clear()
+        self.train_loss_canvas.ax.plot(range(len(train_losses)), train_losses, 'r-')
+        self.train_loss_canvas.ax.set_title('Training Loss')
+        self.train_loss_canvas.ax.set_xlabel('Epoch')
+        self.train_loss_canvas.ax.set_ylabel('Loss')
+        self.train_loss_canvas.draw()
+
+    def update_val_accuracy_plot(self, val_accuracies):
+        self.val_accuracy_canvas.ax.clear()
+        self.val_accuracy_canvas.ax.plot(range(len(val_accuracies)), val_accuracies, 'b-')
+        self.val_accuracy_canvas.ax.set_title('Validation Accuracy')
+        self.val_accuracy_canvas.ax.set_xlabel('Epoch')
+        self.val_accuracy_canvas.ax.set_ylabel('Accuracy')
+        self.val_accuracy_canvas.draw()
+
+    def update_epoch_label(self, epoch, loss):
+        self.epoch_label.setText(f"Epoch: {epoch}/{self.epochs_slider.value()} - Loss: {loss:.4f}")
+
+    def update_batch_label(self, epoch, batch, loss):
+        self.batch_label.setText(f"Epoch: {epoch} - Batch: {batch}/{len(self.train_loader)} - Loss: {loss:.4f}")
+
+    def stop_training(self):
+        if self.training_thread and self.training_thread.isRunning():
+            self.training_thread.stop()
+            self.train_progress_bar.setValue(0)
+            self.epoch_label.setText("Epoch: 0/0")
+            self.batch_label.setText("Batch: 0/0")
+        else:
+            print("No training in progress")
+
+    def on_training_stopped(self):
+        print("Training Stopped")
+        self.stacked_widget.setCurrentWidget(self.train_page)
+
+    def train_alexnet(self, train_loader, test_loader, epochs):
         print("Training AlexNet...")
 
-    def train_resnet(self):
-        print("Training ResNet...")
-
-    def train_inception(self):
+    def train_inception(self, train_loader, test_loader, epochs):
         print("Training Inception v3...")
 
     def button4_clicked(self):
