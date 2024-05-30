@@ -1,22 +1,17 @@
-import sys
-import cv2
+import sys, time, cv2, random, torch
 import numpy as np
-import random
 import matplotlib.pyplot as plt
 from PIL import Image
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout, QLineEdit, QComboBox, QSlider, QStackedWidget
 from PyQt5.QtGui import QPixmap, QImage, QFont
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-import torch
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
-# from resNet50 import ResNet, BasicBlock
 from dataloader import CSVDataLoader
-from training import TrainingThreadResnet, TrainingThreadInceptionV1, TrainingThreadAlexNet
+from training import TrainingThreadResnet, TrainingThreadInceptionV1, TrainingThreadAlexNet, TrainingThreadDenseNet
 from dataset import HandSealDataset
-# from inceptionV1 import InceptionV1
 from torchvision import transforms
 
 class MplCanvas(FigureCanvas):
@@ -35,6 +30,10 @@ class HandSeals(QWidget):
         self.data_loader = None
         self.search_bar_added = False
         self.training_thread = None
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_timer)
+        self.start_time = 0
+        
         self.initUI()
 
     def initUI(self):
@@ -83,6 +82,7 @@ class HandSeals(QWidget):
         self.train_settings()
 
         self.stacked_widget.addWidget(self.train_page)
+        
 
         # Training progress page
         self.train_progress_page = QWidget()
@@ -99,6 +99,10 @@ class HandSeals(QWidget):
 
         self.accuracy_label = QLabel("Accuracy: 0%")
         self.train_progress_layout.addWidget(self.accuracy_label)
+
+        self.timer_label = QLabel("Time Elapsed: 00:00:00", self)
+        self.timer_label.setAlignment(Qt.AlignCenter)
+        self.train_progress_layout.addWidget(self.timer_label)
 
         # Create a horizontal layout for the graphs
         self.graph_layout = QHBoxLayout()
@@ -270,7 +274,7 @@ class HandSeals(QWidget):
         self.train_layout.addSpacing(20)
 
         self.model_combo = QComboBox()
-        self.model_combo.addItems(["AlexNet", "ResNet", "Inception V1"])
+        self.model_combo.addItems(["AlexNet", "ResNet", "Inception V1", "DenseNet"])
         self.train_layout.addWidget(self.model_combo)
 
         self.train_layout.addSpacing(60)
@@ -343,6 +347,10 @@ class HandSeals(QWidget):
 
     def start_training(self):
 
+        self.reset_timer()
+        self.start_time = time.time()
+        self.timer.start(1000)  # Update every second
+
         selected_model = self.model_combo.currentText()
         batch_size = self.batch_size_slider.value()
         epochs = self.epochs_slider.value()
@@ -350,7 +358,7 @@ class HandSeals(QWidget):
 
         transform = transforms.Compose([
             transforms.Grayscale(num_output_channels=1),  # Convert to grayscale if needed
-            transforms.Resize((28, 28)),
+            transforms.Resize((64, 64)),  # Resize images to a larger size
             transforms.ToTensor(),  # Converts to FloatTensor and scales the values to [0, 1]
         ])
 
@@ -378,6 +386,11 @@ class HandSeals(QWidget):
             self.train_resnet(train_loader, test_loader, epochs)
         elif selected_model == 'Inception V1':
             self.train_inceptionV1(train_loader, test_loader, epochs)
+        elif selected_model == 'DenseNet':
+            self.train_densenet(train_loader, test_loader, epochs)
+
+        # Re-enable the Stop Training button when starting a new training session
+        self.stop_training_button.setEnabled(True)
 
     def update_train_loss_plot(self, train_losses):
         self.train_loss_canvas.ax.clear()
@@ -407,25 +420,30 @@ class HandSeals(QWidget):
     def update_batch_label(self, epoch, batch, loss):
         self.batch_label.setText(f"Epoch: {epoch} - Batch: {batch}/{len(self.train_loader)} - Loss: {loss:.4f}")
 
+    def update_timer(self):
+        elapsed_time = int(time.time() - self.start_time)
+        hours, remainder = divmod(elapsed_time, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        self.timer_label.setText(f"Time Elapsed: {hours:02}:{minutes:02}:{seconds:02}")
+
+    def reset_timer(self):
+        self.timer_label.setText("Time Elapsed: 00:00:00")
+        self.start_time = 0
+
     def stop_training(self):
         if self.training_thread and self.training_thread.isRunning():
             self.training_thread.stop()
-            self.train_progress_bar.setValue(0)
-            self.epoch_label.setText("Epoch: 0/0")
-            self.batch_label.setText("Batch: 0/0")
-        else:
-            print("No training in progress")
+            self.training_thread.wait()
+            self.stop_training_button.setEnabled(False)
+            self.timer.stop()
+            print("Training stopped.")
 
     def on_training_stopped(self):
         print("Training Stopped")
+        self.stop_training_button.setEnabled(False)
+        self.timer.stop()
         # Ensure that the train progress page is still visible
         self.stacked_widget.setCurrentWidget(self.train_progress_page)
-
-        # Disable the stop training button since training has stopped
-        self.stop_training_button.setDisabled(True)
-
-        # Re-enable the start training button for possible new training sessions
-        self.start_training_button.setEnabled(True)
 
         # Ensure the progress bar reflects the complete state if training finished normally
         self.train_progress_bar.setValue(100)
@@ -470,10 +488,24 @@ class HandSeals(QWidget):
         self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
         self.training_thread.start()
 
+    def train_densenet(self, train_loader, test_loader, epochs):
+        self.stacked_widget.setCurrentWidget(self.train_progress_page)
+        self.training_thread = TrainingThreadDenseNet(train_loader, test_loader, epochs)
+        self.train_loader = train_loader
+        self.training_thread.progress_updated.connect(self.train_progress_bar.setValue)
+        self.training_thread.training_stopped.connect(self.on_training_stopped)
+        self.training_thread.epoch_updated.connect(self.update_epoch_label)
+        self.training_thread.batch_updated.connect(self.update_batch_label)
+        self.training_thread.train_loss_updated.connect(self.update_train_loss_plot)
+        self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
+        self.training_thread.start()
+
     def button4_clicked(self):
         print("Testing...")
 
 if __name__ == '__main__':
+
+
     app = QApplication(sys.argv)
     window = HandSeals()
     window.show()
