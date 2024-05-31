@@ -7,10 +7,10 @@ from torchvision import transforms
 class HandSealDataset(Dataset):
     def __init__(self, images, transform=None):
         self.images = images
-        self.transform = transform if transform else transforms.Compose([
+        self.transform = transforms.Compose([
             transforms.Grayscale(num_output_channels=1),  # Convert to grayscale if needed
-            transforms.Resize((28, 28)),  # Resize images
-            transforms.ToTensor(),  # Convert to FloatTensor and scale to [0, 1]
+            transforms.Resize((96, 96)),  # Resize images to a larger size
+            transforms.ToTensor(),  # Converts to FloatTensor and scales the values to [0, 1]
         ])
 
     def __len__(self):

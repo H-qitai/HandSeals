@@ -24,6 +24,21 @@ class HandSeals(QWidget):
         super().__init__()
         self.setWindowTitle('Hand Seals')
         self.resize(1000, 800)
+
+        # Define a dictionary to remap the labels
+        self.label_remap = {
+            26: 35,
+            27: 26,
+            28: 33,
+            29: 32,
+            30: 27,
+            31: 34,
+            32: 30,
+            33: 29,
+            34: 28,
+            35: 31
+        }
+
         self.images = []
         self.filtered_images = []
         self.current_image_index = 0
@@ -175,11 +190,20 @@ class HandSeals(QWidget):
             self.start_training_button.setEnabled(False)
 
     def on_data_loaded(self, images):
-        self.images = images
-        self.filtered_images = images
+        # Remap the labels
+        remapped_images = []
+        for label, pixels in images:
+            if label in self.label_remap:
+                remapped_label = self.label_remap[label]
+            else:
+                remapped_label = label
+            remapped_images.append((remapped_label, pixels))
+
+        self.images = remapped_images
+        self.filtered_images = self.images
         self.progress_bar.setValue(100)
-        self.stop_button.setEnabled(False)  # Disable stop button when loading completes
-        if self.images:  # Enable start training button if images are loaded
+        self.stop_button.setEnabled(False)
+        if self.images:
             self.start_training_button.setEnabled(True)
 
     def on_data_load_error(self, error):
@@ -234,12 +258,15 @@ class HandSeals(QWidget):
             if child.widget():
                 child.widget().deleteLater()
 
+    # Ensure your filter_images function filters based on mapped labels
     def filter_images(self):
-        search_text = self.search_bar.text().strip().lower()
-        if search_text:
-            self.filtered_images = [img for img in self.images if search_text in str(img[0]).lower()]
+        search_text = self.search_bar.text().strip()
+        if search_text.isdigit():
+            label = int(search_text)
+            self.filtered_images = [img for img in self.images if img[0] == label]
         else:
             self.filtered_images = self.images
+
         self.current_image_index = 0
         self.clear_layout(self.image_layout)
         self.add_images_incrementally()
@@ -356,13 +383,7 @@ class HandSeals(QWidget):
         epochs = self.epochs_slider.value()
         train_test_ratio = self.train_test_ratio_slider.value() / 100.0
 
-        transform = transforms.Compose([
-            transforms.Grayscale(num_output_channels=1),  # Convert to grayscale if needed
-            transforms.Resize((64, 64)),  # Resize images to a larger size
-            transforms.ToTensor(),  # Converts to FloatTensor and scales the values to [0, 1]
-        ])
-
-        dataset = HandSealDataset(self.images, transform=transform)  # Use HandSealDataset for images
+        dataset = HandSealDataset(self.images)  # Use HandSealDataset for images
 
         # Ensure there are enough samples for training and testing
         if len(dataset) == 0:

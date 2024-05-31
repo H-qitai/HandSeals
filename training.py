@@ -7,7 +7,7 @@ from inceptionV1 import InceptionV1
 from alexNet import AlexNet
 from DenseNet import DenseNet
 
-class TrainingThreadResnet(QThread):
+class TrainingThreadAlexNet(QThread):
     progress_updated = pyqtSignal(int)
     training_stopped = pyqtSignal()
     epoch_updated = pyqtSignal(int, float)
@@ -24,10 +24,10 @@ class TrainingThreadResnet(QThread):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def run(self):
-        model = ResNet(BasicBlock, [2, 2, 2, 2], num_classes=36).to(self.device)
+        model = AlexNet(num_classes=36).to(self.device)
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(model.parameters(), lr=0.0001, momentum=0.9)
-
+        optimizer = optim.SGD(model.parameters(), lr=0.05, momentum=0.9)
+        
         train_losses = []
         val_accuracies = []
         self.final_train_losses = []  # Store final losses here
@@ -151,8 +151,7 @@ class TrainingThreadInceptionV1(QThread):
     def stop(self):
         self._is_running = False
 
-
-class TrainingThreadAlexNet(QThread):
+class TrainingThreadResnet(QThread):
     progress_updated = pyqtSignal(int)
     training_stopped = pyqtSignal()
     epoch_updated = pyqtSignal(int, float)
@@ -169,10 +168,10 @@ class TrainingThreadAlexNet(QThread):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def run(self):
-        model = AlexNet(num_classes=36).to(self.device)
+        model = ResNet(BasicBlock, [2, 2, 2, 2], num_classes=36).to(self.device)
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(model.parameters(), lr=0.05, momentum=0.9)
-        
+        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+
         train_losses = []
         val_accuracies = []
         self.final_train_losses = []  # Store final losses here
