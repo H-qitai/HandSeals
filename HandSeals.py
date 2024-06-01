@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout, QLineEdit, QComboBox, QSlider, QStackedWidget
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout, QLineEdit, QComboBox, QSlider, QStackedWidget, QMessageBox
 from PyQt5.QtGui import QPixmap, QImage, QFont
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
 import torch.optim as optim
@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from dataloader import CSVDataLoader
 from training import TrainingThreadResnet, TrainingThreadInceptionV1, TrainingThreadAlexNet, TrainingThreadDenseNet
 from dataset import HandSealDataset
-from torchvision import transforms
+from utils.model_utils import load_model
 
 class MplCanvas(FigureCanvas):
     def __init__(self, parent=None, width=6, height=5, dpi=100):
@@ -24,6 +24,7 @@ class HandSeals(QWidget):
         super().__init__()
         self.setWindowTitle('Hand Seals')
         self.resize(1000, 800)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Define a dictionary to remap the labels
         self.label_remap = {
@@ -159,7 +160,7 @@ class HandSeals(QWidget):
         self.horizontal_layout.addWidget(self.train_button)
 
         self.test_button = QPushButton('Test')
-        self.test_button.clicked.connect(self.button4_clicked)
+        self.test_button.clicked.connect(self.load_and_test_model)
         self.horizontal_layout.addWidget(self.test_button)
 
         self.stop_button = QPushButton('Stop Loading')
@@ -167,11 +168,67 @@ class HandSeals(QWidget):
         self.stop_button.setEnabled(False)  # Initially disabled
         self.horizontal_layout.addWidget(self.stop_button)
 
+    def load_and_test_model(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.ReadOnly
+        file_path, _ = QFileDialog.getOpenFileName(self, "Load Model", "", "Model Files (*.pth);;All Files (*)", options=options)
+        if not file_path:
+            return
+
+        try:
+            # Load the model and configuration
+            model, config = load_model(file_path)
+            model.to(self.device)  # Send the model to the appropriate device (CPU/GPU)
+
+            # Create the test DataLoader based on the configuration
+            dataset = HandSealDataset(self.images)  # Use HandSealDataset for images
+
+            train_size = int(len(dataset) * config['train_test_ratio'])
+            test_size = len(dataset) - train_size
+
+            if test_size == 0:
+                QMessageBox.critical(self, "Error", "Test dataset is empty. Cannot proceed with testing.")
+                return
+
+            _, test_dataset = random_split(dataset, [train_size, test_size])
+            test_loader = DataLoader(test_dataset, batch_size=config['batch_size'], shuffle=False)
+
+            # Ensure test_loader is not empty
+            if len(test_loader) == 0:
+                QMessageBox.critical(self, "Error", "Test DataLoader is empty. Cannot proceed with testing.")
+                return
+
+            # Evaluate the model on the test dataset
+            model.eval()
+            correct = 0
+            total = 0
+            with torch.no_grad():
+                for data in test_loader:
+                    images, labels = data
+                    images, labels = images.to(self.device), labels.to(self.device)
+                    outputs = model(images)
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += labels.size(0)
+                    correct += (predicted == labels).sum().item()
+
+            # Prevent division by zero
+            if total == 0:
+                accuracy = 0.0
+            else:
+                accuracy = 100 * correct / total
+
+            QMessageBox.information(self, "Model Accuracy", f"Accuracy of the model on the test dataset: {accuracy:.2f}%")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load and test the model:\n{str(e)}")
+
+
+    # file select
     def button1_clicked(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open CSV File", "", "CSV Files (*.csv)")
         if file_path:
             self.load_data(file_path)
 
+    # Load data from a CSV file, and update the progress bar
     def load_data(self, file_path):
         self.data_loader = CSVDataLoader(file_path)
         self.data_loader.dataLoaded.connect(self.on_data_loaded)
@@ -181,6 +238,7 @@ class HandSeals(QWidget):
         self.stop_button.setEnabled(True)  # Enable stop button when loading starts
         self.data_loader.start()
 
+    # Stop loading the data
     def stop_loading(self):
         self.data_loader.stop()
         self.progress_bar.setValue(0)
@@ -189,6 +247,7 @@ class HandSeals(QWidget):
         if not self.images:  # Disable start training button if no images are loaded
             self.start_training_button.setEnabled(False)
 
+    # Load the data into the application, and remap the labels
     def on_data_loaded(self, images):
         # Remap the labels
         remapped_images = []
@@ -206,14 +265,17 @@ class HandSeals(QWidget):
         if self.images:
             self.start_training_button.setEnabled(True)
 
+    # Error handling
     def on_data_load_error(self, error):
         print(f"Error loading data: {error}")
         self.stop_button.setEnabled(False)  # Disable stop button if loading encounters an error
         self.start_training_button.setEnabled(False) 
 
+    # Update the time left
     def update_time_left(self, minutes, seconds):
         self.time_left_label.setText(f"Time left: {minutes:02}:{seconds:02}")
 
+    # Show the view page
     def show_view_page(self):
         self.stacked_widget.setCurrentWidget(self.view_page)
         if self.images:
@@ -221,6 +283,7 @@ class HandSeals(QWidget):
             self.clear_layout(self.image_layout)
             self.add_images_incrementally()
 
+    # Add images to the layout incrementally to prevent lag
     def add_images_incrementally(self):
         batch_size = 100
         start_index = self.current_image_index
@@ -233,6 +296,7 @@ class HandSeals(QWidget):
             self.image_layout.addWidget(label_widget, i // 10, i % 10)
         self.current_image_index = end_index
 
+    # Convert an image array to a QPixmap
     def array_to_pixmap(self, array):
         if len(array.shape) == 2:  # Grayscale image
             image = cv2.cvtColor(array, cv2.COLOR_GRAY2RGB)
@@ -247,11 +311,13 @@ class HandSeals(QWidget):
         q_image = QImage(image.data, image.shape[1], image.shape[0], bytes_per_line, QImage.Format_RGB888)
         return QPixmap.fromImage(q_image)
 
+    # Filter images based on the search bar
     def check_scroll(self, value):
         if value == self.image_scroll_area.verticalScrollBar().maximum():
             if self.current_image_index < len(self.filtered_images):
                 self.add_images_incrementally()
 
+    # Clear the layout
     def clear_layout(self, layout):
         while layout.count():
             child = layout.takeAt(0)
@@ -283,6 +349,7 @@ class HandSeals(QWidget):
     def update_epochs_label(self, value):
         self.epochs_value_label.setText(str(value))
 
+    # train page
     def train_settings(self):
         font = QFont("Arial", 10, QFont.Bold)
 
@@ -372,6 +439,7 @@ class HandSeals(QWidget):
 
         self.train_layout.addSpacing(60)
 
+    # Training, configure the hyper parameters, and select which model and start training.
     def start_training(self):
 
         self.reset_timer()
@@ -413,6 +481,7 @@ class HandSeals(QWidget):
         # Re-enable the Stop Training button when starting a new training session
         self.stop_training_button.setEnabled(True)
 
+    # Update the graph when training
     def update_train_loss_plot(self, train_losses):
         self.train_loss_canvas.ax.clear()
         self.train_loss_canvas.ax.plot(range(len(train_losses)), train_losses, 'r-')
@@ -422,6 +491,7 @@ class HandSeals(QWidget):
         self.val_accuracy_canvas.ax.grid(True)  # Add grid
         self.train_loss_canvas.draw()
 
+    # Update the graph when training
     def update_val_accuracy_plot(self, val_accuracies):
         self.val_accuracy_canvas.ax.clear()
         self.val_accuracy_canvas.ax.plot(range(len(val_accuracies)), val_accuracies, 'b-')
@@ -435,12 +505,14 @@ class HandSeals(QWidget):
         if val_accuracies:
             self.accuracy_label.setText(f"Accuracy: {val_accuracies[-1]:.2f}%")
 
+    # Text information for the training progress
     def update_epoch_label(self, epoch, loss):
         self.epoch_label.setText(f"Epoch: {epoch}/{self.epochs_slider.value()} - Loss: {loss:.4f}")
 
     def update_batch_label(self, epoch, batch, loss):
         self.batch_label.setText(f"Epoch: {epoch} - Batch: {batch}/{len(self.train_loader)} - Loss: {loss:.4f}")
 
+    # Timer for training
     def update_timer(self):
         elapsed_time = int(time.time() - self.start_time)
         hours, remainder = divmod(elapsed_time, 3600)
@@ -473,9 +545,10 @@ class HandSeals(QWidget):
         self.update_train_loss_plot(self.training_thread.final_train_losses)
         self.update_val_accuracy_plot(self.training_thread.final_val_accuracies)
 
+    # Call the training thread for the AlexNet model
     def train_alexnet(self, train_loader, test_loader, epochs):
         self.stacked_widget.setCurrentWidget(self.train_progress_page)
-        self.training_thread = TrainingThreadAlexNet(train_loader, test_loader, epochs)
+        self.training_thread = TrainingThreadAlexNet(train_loader, test_loader, epochs, train_test_ratio=self.train_test_ratio_slider.value() / 100.0)
         self.train_loader = train_loader
         self.training_thread.progress_updated.connect(self.train_progress_bar.setValue)
         self.training_thread.training_stopped.connect(self.on_training_stopped)
@@ -485,6 +558,7 @@ class HandSeals(QWidget):
         self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
         self.training_thread.start()
 
+    # Call the training thread for the InceptionV1 model
     def train_inceptionV1(self, train_loader, test_loader, epochs):
         self.stacked_widget.setCurrentWidget(self.train_progress_page)
         self.training_thread = TrainingThreadInceptionV1(train_loader, test_loader, epochs)
@@ -497,6 +571,7 @@ class HandSeals(QWidget):
         self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
         self.training_thread.start()
 
+    # Call the training thread for the ResNet model
     def train_resnet(self, train_loader, test_loader, epochs):
         self.stacked_widget.setCurrentWidget(self.train_progress_page)
         self.training_thread = TrainingThreadResnet(train_loader, test_loader, epochs)
@@ -509,6 +584,7 @@ class HandSeals(QWidget):
         self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
         self.training_thread.start()
 
+    # Call the training thread for the DenseNet model
     def train_densenet(self, train_loader, test_loader, epochs):
         self.stacked_widget.setCurrentWidget(self.train_progress_page)
         self.training_thread = TrainingThreadDenseNet(train_loader, test_loader, epochs)
@@ -521,12 +597,7 @@ class HandSeals(QWidget):
         self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
         self.training_thread.start()
 
-    def button4_clicked(self):
-        print("Testing...")
-
 if __name__ == '__main__':
-
-
     app = QApplication(sys.argv)
     window = HandSeals()
     window.show()

@@ -1,12 +1,14 @@
 from PyQt5.QtCore import QThread, pyqtSignal
-import torch
+import torch, os
 import torch.optim as optim
 import torch.nn as nn
-from resNet50 import ResNet, BasicBlock
-from inceptionV1 import InceptionV1
-from alexNet import AlexNet
-from DenseNet import DenseNet
+from models.resNet50 import ResNet, BasicBlock
+from models.inceptionV1 import InceptionV1
+from models.alexNet import AlexNet
+from models.DenseNet import DenseNet
 
+
+# Training thread for AlexNet
 class TrainingThreadAlexNet(QThread):
     progress_updated = pyqtSignal(int)
     training_stopped = pyqtSignal()
@@ -15,11 +17,25 @@ class TrainingThreadAlexNet(QThread):
     train_loss_updated = pyqtSignal(list)
     val_accuracy_updated = pyqtSignal(list)
 
-    def __init__(self, train_loader, test_loader, epochs):
+    def save_model(self, model, config, filename):
+        save_dir = 'saved_models'
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Create the full path
+        save_path = os.path.join(save_dir, filename)
+
+        state = {
+            'model_state_dict': model.state_dict(),
+            'config': config
+        }
+        torch.save(state, save_path)
+
+    def __init__(self, train_loader, test_loader, epochs, train_test_ratio):
         super().__init__()
         self.train_loader = train_loader
         self.test_loader = test_loader
         self.epochs = epochs
+        self.train_test_ratio = train_test_ratio
         self._is_running = True
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -74,11 +90,20 @@ class TrainingThreadAlexNet(QThread):
             self.final_train_losses.append(avg_train_loss)
             self.final_val_accuracies.append(accuracy)
 
+        config = {
+            'train_test_ratio': self.train_test_ratio,
+            'model_name': 'AlexNet',
+            'batch_size': self.train_loader.batch_size,
+            'epochs': self.epochs
+        }
+        self.save_model(model, config, f'model_{config["model_name"]}.pth')
+
         self.training_stopped.emit()
 
     def stop(self):
         self._is_running = False
 
+# Training thread for InceptionV1
 class TrainingThreadInceptionV1(QThread):
     progress_updated = pyqtSignal(int)
     training_stopped = pyqtSignal()
@@ -151,6 +176,7 @@ class TrainingThreadInceptionV1(QThread):
     def stop(self):
         self._is_running = False
 
+# Training thread for ResNet
 class TrainingThreadResnet(QThread):
     progress_updated = pyqtSignal(int)
     training_stopped = pyqtSignal()
@@ -223,7 +249,7 @@ class TrainingThreadResnet(QThread):
     def stop(self):
         self._is_running = False
 
-
+# Training thread for DenseNet
 class TrainingThreadDenseNet(QThread):
     progress_updated = pyqtSignal(int)
     training_stopped = pyqtSignal()
