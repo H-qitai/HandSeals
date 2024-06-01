@@ -112,11 +112,25 @@ class TrainingThreadInceptionV1(QThread):
     train_loss_updated = pyqtSignal(list)
     val_accuracy_updated = pyqtSignal(list)
 
-    def __init__(self, train_loader, test_loader, epochs):
+    def save_model(self, model, config, filename):
+        save_dir = 'saved_models'
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Create the full path
+        save_path = os.path.join(save_dir, filename)
+
+        state = {
+            'model_state_dict': model.state_dict(),
+            'config': config
+        }
+        torch.save(state, save_path)
+
+    def __init__(self, train_loader, test_loader, epochs, train_test_ratio):
         super().__init__()
         self.train_loader = train_loader
         self.test_loader = test_loader
         self.epochs = epochs
+        self.train_test_ratio = train_test_ratio
         self._is_running = True
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -171,6 +185,14 @@ class TrainingThreadInceptionV1(QThread):
             self.final_train_losses.append(avg_train_loss)
             self.final_val_accuracies.append(accuracy)
 
+        config = {
+            'train_test_ratio': self.train_test_ratio,
+            'model_name': 'InceptionV1',
+            'batch_size': self.train_loader.batch_size,
+            'epochs': self.epochs
+        }
+        self.save_model(model, config, f'model_{config["model_name"]}.pth')
+
         self.training_stopped.emit()
 
     def stop(self):
@@ -185,11 +207,25 @@ class TrainingThreadResnet(QThread):
     train_loss_updated = pyqtSignal(list)
     val_accuracy_updated = pyqtSignal(list)
 
-    def __init__(self, train_loader, test_loader, epochs):
+    def save_model(self, model, config, filename):
+        save_dir = 'saved_models'
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Create the full path
+        save_path = os.path.join(save_dir, filename)
+
+        state = {
+            'model_state_dict': model.state_dict(),
+            'config': config
+        }
+        torch.save(state, save_path)
+
+    def __init__(self, train_loader, test_loader, epochs, train_test_ratio):
         super().__init__()
         self.train_loader = train_loader
         self.test_loader = test_loader
         self.epochs = epochs
+        self.train_test_ratio = train_test_ratio
         self._is_running = True
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -244,6 +280,14 @@ class TrainingThreadResnet(QThread):
             self.final_train_losses.append(avg_train_loss)
             self.final_val_accuracies.append(accuracy)
 
+        config = {
+            'train_test_ratio': self.train_test_ratio,
+            'model_name': 'ResNet',
+            'batch_size': self.train_loader.batch_size,
+            'epochs': self.epochs
+        }
+        self.save_model(model, config, f'model_{config["model_name"]}.pth')
+
         self.training_stopped.emit()
 
     def stop(self):
@@ -258,18 +302,32 @@ class TrainingThreadDenseNet(QThread):
     train_loss_updated = pyqtSignal(list)
     val_accuracy_updated = pyqtSignal(list)
 
-    def __init__(self, train_loader, test_loader, epochs):
+    def save_model(self, model, config, filename):
+        save_dir = 'saved_models'
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Create the full path
+        save_path = os.path.join(save_dir, filename)
+
+        state = {
+            'model_state_dict': model.state_dict(),
+            'config': config
+        }
+        torch.save(state, save_path)
+
+    def __init__(self, train_loader, test_loader, epochs, train_test_ratio):
         super().__init__()
         self.train_loader = train_loader
         self.test_loader = test_loader
         self.epochs = epochs
+        self.train_test_ratio = train_test_ratio
         self._is_running = True
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def run(self):
         model = DenseNet(num_classes=36).to(self.device)
         criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
         scaler = torch.cuda.amp.GradScaler()  # Mixed precision scaler
 
         train_losses = []
@@ -321,6 +379,14 @@ class TrainingThreadDenseNet(QThread):
             self.val_accuracy_updated.emit(val_accuracies)
             self.final_train_losses.append(avg_train_loss)
             self.final_val_accuracies.append(accuracy)
+
+        config = {
+            'train_test_ratio': self.train_test_ratio,
+            'model_name': 'DenseNet',
+            'batch_size': self.train_loader.batch_size,
+            'epochs': self.epochs
+        }
+        self.save_model(model, config, f'model_{config["model_name"]}.pth')
 
         self.training_stopped.emit()
 

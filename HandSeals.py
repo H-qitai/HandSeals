@@ -1,18 +1,19 @@
 import sys, time, cv2, random, torch
 import numpy as np
-import matplotlib.pyplot as plt
 from PIL import Image
+import matplotlib.pyplot as plt
+import torch.nn.functional as F
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout, QLineEdit, QComboBox, QSlider, QStackedWidget, QMessageBox
-from PyQt5.QtGui import QPixmap, QImage, QFont
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt5.QtWidgets import QApplication, QDialog, QWidget, QVBoxLayout, QPushButton, QProgressBar, QFileDialog, QScrollArea, QLabel, QGridLayout, QLineEdit, QComboBox, QSlider, QStackedWidget, QMessageBox, QHBoxLayout
+from PyQt5.QtGui import QPixmap, QImage, QFont, QIcon
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QSize
 import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
 from dataloader import CSVDataLoader
 from training import TrainingThreadResnet, TrainingThreadInceptionV1, TrainingThreadAlexNet, TrainingThreadDenseNet
 from dataset import HandSealDataset
-from utils.model_utils import load_model
+from utils.model_utils import load_model, DetailedViewWindow
 
 class MplCanvas(FigureCanvas):
     def __init__(self, parent=None, width=6, height=5, dpi=100):
@@ -92,6 +93,25 @@ class HandSeals(QWidget):
 
         self.stacked_widget.addWidget(self.view_page)
 
+        # Add a page for displaying test results
+        self.test_results_page = QWidget()
+        self.test_results_layout = QVBoxLayout(self.test_results_page)
+
+        # Search bar for test results
+        self.test_search_bar = QLineEdit()
+        self.test_search_bar.setPlaceholderText("Search test results by label...")
+        self.test_search_bar.textChanged.connect(self.filter_test_images)
+        self.test_results_layout.addWidget(self.test_search_bar)
+
+        self.test_image_scroll_area = QScrollArea()
+        self.test_image_scroll_area.setWidgetResizable(True)
+        self.test_image_container = QWidget()
+        self.test_image_layout = QGridLayout(self.test_image_container)
+        self.test_image_scroll_area.setWidget(self.test_image_container)
+        self.test_results_layout.addWidget(self.test_image_scroll_area)
+
+        self.stacked_widget.addWidget(self.test_results_page)
+
         # Create train page
         self.train_page = QWidget()
         self.train_layout = QVBoxLayout(self.train_page)
@@ -99,7 +119,6 @@ class HandSeals(QWidget):
 
         self.stacked_widget.addWidget(self.train_page)
         
-
         # Training progress page
         self.train_progress_page = QWidget()
         self.train_progress_layout = QVBoxLayout(self.train_progress_page)
@@ -144,7 +163,7 @@ class HandSeals(QWidget):
 
         # Connect the scroll event
         self.image_scroll_area.verticalScrollBar().valueChanged.connect(self.check_scroll)
-
+        self.test_image_scroll_area.verticalScrollBar().valueChanged.connect(self.check_test_scroll)
 
     def init_buttons(self):
         self.load_data_button = QPushButton('Load Data')
@@ -202,14 +221,23 @@ class HandSeals(QWidget):
             model.eval()
             correct = 0
             total = 0
+            self.test_images = []
             with torch.no_grad():
                 for data in test_loader:
                     images, labels = data
                     images, labels = images.to(self.device), labels.to(self.device)
                     outputs = model(images)
+                    probabilities = F.softmax(outputs, dim=1)
                     _, predicted = torch.max(outputs.data, 1)
                     total += labels.size(0)
                     correct += (predicted == labels).sum().item()
+                    # Convert tensor to numpy array and denormalize if necessary
+                    for img, label, pred, prob in zip(images.cpu().numpy(), labels.cpu().numpy(), predicted.cpu().numpy(), probabilities.cpu().numpy()):
+                        img = (img * 255).astype(np.uint8)  # Convert from [0, 1] range to [0, 255]
+                        if img.shape[0] == 1:  # If image is grayscale with channel dimension
+                            img = img[0]
+                        img = img.transpose(1, 2, 0) if img.shape[0] == 3 else img  # Convert from (C, H, W) to (H, W, C) if needed
+                        self.test_images.append((label, pred, img, prob))
 
             # Prevent division by zero
             if total == 0:
@@ -217,9 +245,11 @@ class HandSeals(QWidget):
             else:
                 accuracy = 100 * correct / total
 
+            self.show_test_results_page()
             QMessageBox.information(self, "Model Accuracy", f"Accuracy of the model on the test dataset: {accuracy:.2f}%")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load and test the model:\n{str(e)}")
+
 
 
     # file select
@@ -283,6 +313,13 @@ class HandSeals(QWidget):
             self.clear_layout(self.image_layout)
             self.add_images_incrementally()
 
+    def show_test_results_page(self):
+        self.stacked_widget.setCurrentWidget(self.test_results_page)
+        self.current_image_index = 0
+        self.clear_layout(self.test_image_layout)
+        self.filtered_test_images = self.test_images 
+        self.add_filtered_test_images_incrementally()
+
     # Add images to the layout incrementally to prevent lag
     def add_images_incrementally(self):
         batch_size = 100
@@ -296,26 +333,55 @@ class HandSeals(QWidget):
             self.image_layout.addWidget(label_widget, i // 10, i % 10)
         self.current_image_index = end_index
 
+    # Add filtered test images incrementally
+    def add_filtered_test_images_incrementally(self):
+        batch_size = 100
+        start_index = self.current_image_index
+        end_index = min(start_index + batch_size, len(self.filtered_test_images))
+        for i in range(start_index, end_index):
+            label, predicted, img_data, probabilities = self.filtered_test_images[i]
+            pixmap = self.array_to_pixmap(img_data)
+            image_button = QPushButton()
+            image_button.setIcon(QIcon(pixmap))
+            image_button.setIconSize(QSize(100, 100))
+            image_button.clicked.connect(lambda _, img=img_data, probs=probabilities, pred=predicted: self.show_detailed_view(img, probs, pred))
+            self.test_image_layout.addWidget(image_button, i // 10, i % 10)
+        self.current_image_index = end_index
+
+
+    def show_detailed_view(self, image, probabilities, predicted_label):
+        self.detailed_view = DetailedViewWindow(image, probabilities, predicted_label)
+        self.detailed_view.exec_()
+
     # Convert an image array to a QPixmap
     def array_to_pixmap(self, array):
         if len(array.shape) == 2:  # Grayscale image
             image = cv2.cvtColor(array, cv2.COLOR_GRAY2RGB)
         elif len(array.shape) == 3 and array.shape[0] == 1:  # Grayscale image with channel dimension
             image = cv2.cvtColor(array[0], cv2.COLOR_GRAY2RGB)
-        elif len(array.shape) == 3 and array.shape[0] == 3:  # RGB image
+        elif len(array.shape) == 3 and array.shape[0] == 3:  # RGB image (C, H, W)
             image = array.transpose(1, 2, 0)  # Convert from (C, H, W) to (H, W, C)
+        elif len(array.shape) == 3 and array.shape[2] == 3:  # RGB image (H, W, C)
+            image = array
         else:
             raise ValueError("Invalid image shape")
 
-        bytes_per_line = 3 * image.shape[1]
-        q_image = QImage(image.data, image.shape[1], image.shape[0], bytes_per_line, QImage.Format_RGB888)
+        height, width, _ = image.shape
+        bytes_per_line = 3 * width
+        q_image = QImage(image.data, width, height, bytes_per_line, QImage.Format_RGB888)
         return QPixmap.fromImage(q_image)
+
 
     # Filter images based on the search bar
     def check_scroll(self, value):
         if value == self.image_scroll_area.verticalScrollBar().maximum():
             if self.current_image_index < len(self.filtered_images):
                 self.add_images_incrementally()
+
+    def check_test_scroll(self, value):
+        if value == self.test_image_scroll_area.verticalScrollBar().maximum():
+            if self.current_image_index < len(self.filtered_test_images):
+                self.add_filtered_test_images_incrementally()
 
     # Clear the layout
     def clear_layout(self, layout):
@@ -336,6 +402,19 @@ class HandSeals(QWidget):
         self.current_image_index = 0
         self.clear_layout(self.image_layout)
         self.add_images_incrementally()
+
+    # Filter test images based on the search bar
+    def filter_test_images(self):
+        search_text = self.test_search_bar.text().strip()
+        if search_text.isdigit():
+            label = int(search_text)
+            self.filtered_test_images = [img for img in self.test_images if img[0] == label]
+        else:
+            self.filtered_test_images = self.test_images
+
+        self.current_image_index = 0
+        self.clear_layout(self.test_image_layout)
+        self.add_filtered_test_images_incrementally()
 
     def show_train_page(self):
         self.stacked_widget.setCurrentWidget(self.train_page)
@@ -561,7 +640,7 @@ class HandSeals(QWidget):
     # Call the training thread for the InceptionV1 model
     def train_inceptionV1(self, train_loader, test_loader, epochs):
         self.stacked_widget.setCurrentWidget(self.train_progress_page)
-        self.training_thread = TrainingThreadInceptionV1(train_loader, test_loader, epochs)
+        self.training_thread = TrainingThreadInceptionV1(train_loader, test_loader, epochs, train_test_ratio=self.train_test_ratio_slider.value() / 100.0)
         self.train_loader = train_loader
         self.training_thread.progress_updated.connect(self.train_progress_bar.setValue)
         self.training_thread.training_stopped.connect(self.on_training_stopped)
@@ -574,7 +653,7 @@ class HandSeals(QWidget):
     # Call the training thread for the ResNet model
     def train_resnet(self, train_loader, test_loader, epochs):
         self.stacked_widget.setCurrentWidget(self.train_progress_page)
-        self.training_thread = TrainingThreadResnet(train_loader, test_loader, epochs)
+        self.training_thread = TrainingThreadResnet(train_loader, test_loader, epochs, train_test_ratio=self.train_test_ratio_slider.value() / 100.0)
         self.train_loader = train_loader
         self.training_thread.progress_updated.connect(self.train_progress_bar.setValue)
         self.training_thread.training_stopped.connect(self.on_training_stopped)
@@ -587,7 +666,7 @@ class HandSeals(QWidget):
     # Call the training thread for the DenseNet model
     def train_densenet(self, train_loader, test_loader, epochs):
         self.stacked_widget.setCurrentWidget(self.train_progress_page)
-        self.training_thread = TrainingThreadDenseNet(train_loader, test_loader, epochs)
+        self.training_thread = TrainingThreadDenseNet(train_loader, test_loader, epochs, train_test_ratio=self.train_test_ratio_slider.value() / 100.0)
         self.train_loader = train_loader
         self.training_thread.progress_updated.connect(self.train_progress_bar.setValue)
         self.training_thread.training_stopped.connect(self.on_training_stopped)
