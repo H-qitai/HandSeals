@@ -14,20 +14,20 @@ Run the command prompt in Anaconda.
 
 Type this in: new conda environment conda create --name cs302 python=3.9
 
-To activate your environment from now on, you will need to type 
-"conda activate cs302" 
-Or open anaconda prompt (cs302)
-This is after you have set it up
+To activate your environment from now on, you will need to type <br>
+"conda activate cs302" <br>
+Or open anaconda prompt (cs302) <br>
+That is after you have set it up <br>
 
-Now type this in if you are using windows and have a GPU:
-conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
-else go to 
+Now type this in if you are using windows and have a GPU: <br>
+conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia<br>
+else go to <br>
 https://pytorch.org/
 
-Now type these command into the setup environment:
-pip install opencv-python==4.7.0.72
-pip install PyQt5==5.15.10
-pip install numpy==1.24.4
+Now type these command into the setup environment: <br>
+pip install opencv-python==4.7.0.72 <br>
+pip install PyQt5==5.15.10 <br>
+pip install numpy==1.24.4 <br>
 
 Install VS code
 
@@ -44,7 +44,8 @@ The program should popup
 
 
 ## Use guide
-Heres a youtube video guide.
+Heres a youtube video guide. <br>
+
 https://www.youtube.com/watch?v=ZJEg09ZemNg
 
 
