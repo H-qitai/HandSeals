@@ -11,7 +11,12 @@ from PyQt5.QtWidgets import QLabel
 from PyQt5.QtCore import Qt
 
 def load_model(filename):
-    state = torch.load(filename)
+    # Use torch.device to load the model onto GPU if available, else CPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Load the model with map_location parameter set to device
+    state = torch.load(filename, map_location=device)
+    
     config = state['config']
     
     # Initialize the model based on the saved configuration
@@ -27,8 +32,11 @@ def load_model(filename):
         raise ValueError(f"Unknown model name: {config['model_name']}")
 
     model.load_state_dict(state['model_state_dict'])
+    model.to(device)  # Ensure model is on the correct device
+    model.eval()
     
     return model, config
+
 
 class DetailedViewWindow(QDialog):
     def __init__(self, image, probabilities, predicted_label, parent=None):

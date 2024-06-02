@@ -24,8 +24,11 @@ class HandSeals(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('Hand Seals')
+        self.setWindowIcon(QIcon('./resources/HandSeals.png'))  # Set the window icon to your logo image
         self.resize(1000, 800)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.model = None  # Ensure model is initialized to None
+        self.model_loaded = False  # Flag to check if model is loaded
 
         # Define a dictionary to remap the labels
         self.label_remap = {
@@ -50,7 +53,7 @@ class HandSeals(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_timer)
         self.start_time = 0
-        
+
         self.initUI()
 
     def initUI(self):
@@ -182,10 +185,16 @@ class HandSeals(QWidget):
         self.test_button.clicked.connect(self.load_and_test_model)
         self.horizontal_layout.addWidget(self.test_button)
 
+        # Add Open Camera button
+        self.open_camera_button = QPushButton('Open Camera')
+        self.open_camera_button.clicked.connect(self.open_camera)
+        self.horizontal_layout.addWidget(self.open_camera_button)
+
         self.stop_button = QPushButton('Stop Loading')
         self.stop_button.clicked.connect(self.stop_loading)
         self.stop_button.setEnabled(False)  # Initially disabled
         self.horizontal_layout.addWidget(self.stop_button)
+
 
     def load_and_test_model(self):
         options = QFileDialog.Options()
@@ -198,6 +207,8 @@ class HandSeals(QWidget):
             # Load the model and configuration
             model, config = load_model(file_path)
             model.to(self.device)  # Send the model to the appropriate device (CPU/GPU)
+            self.model = model
+            self.model_loaded = True  # Set the flag to True as model is successfully loaded
 
             # Create the test DataLoader based on the configuration
             dataset = HandSealDataset(self.images)  # Use HandSealDataset for images
@@ -675,6 +686,93 @@ class HandSeals(QWidget):
         self.training_thread.train_loss_updated.connect(self.update_train_loss_plot)
         self.training_thread.val_accuracy_updated.connect(self.update_val_accuracy_plot)
         self.training_thread.start()
+
+    def open_camera(self):
+        if not self.model_loaded:
+            QMessageBox.critical(self, "Error", "No model loaded. Please load a model first.")
+            return
+
+        # Create a new window for the camera feed
+        cv_window_name = 'Press "c" to capture or "q" to quit'
+        cv2.namedWindow(cv_window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(cv_window_name, 640, 480)
+
+        cap = cv2.VideoCapture(0)  # Start the webcam
+        if not cap.isOpened():
+            QMessageBox.critical(self, "Error", "Failed to open the camera.")
+            return
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                QMessageBox.warning(self, "Warning", "Failed to capture video from camera.")
+                break  # Exit loop if no frame is captured
+
+            # Show the frame
+            cv2.imshow(cv_window_name, frame)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):  # Quit on 'q'
+                break
+            elif key == ord('c'):  # Capture on 'c'
+                # Here you can set up a bounding box manually or dynamically calculate it
+                bbox = self.get_bounding_box(frame)  # Assume this function gives you the bounding box
+                cropped_frame = self.crop_to_bbox(frame, bbox)
+                processed_frame = self.preprocess_frame(cropped_frame)
+                label = self.predict_hand_sign(processed_frame)
+                self.display_prediction(frame, label, bbox)
+                # After displaying the prediction, you must wait for a key press to continue
+                if cv2.waitKey(0) & 0xFF == ord('q'):
+                    break
+
+        cap.release()  # Release the camera resource
+        cv2.destroyWindow(cv_window_name)  # Close the created window
+
+
+    def get_bounding_box(self, frame):
+        # Dummy function to represent getting a bounding box, should be replaced with actual detection logic
+        height, width, _ = frame.shape
+        box_size = int(min(height, width) * 0.5)
+        x_center, y_center = width // 2, height // 2
+        return (x_center - box_size // 2, y_center - box_size // 2, box_size, box_size)
+
+    def crop_to_bbox(self, frame, bbox):
+        x, y, w, h = bbox
+        return frame[y:y+h, x:x+w]
+
+    def preprocess_frame(self, frame):
+        # Convert to grayscale if the model was trained on grayscale images
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        # Resize to match the input size used during training
+        resized = cv2.resize(gray, (96, 96))  # Adjust as per model's expected input
+        
+        # Normalize the image as was done in training
+        normalized = resized / 255.0  # Adjust normalization based on training
+        
+        return normalized.reshape(1, 96, 96)  # Reshape if necessary for the model input
+
+
+    def predict_hand_sign(self, image):
+        image_tensor = torch.tensor(image, dtype=torch.float).unsqueeze(0).to(self.device)
+        output = self.model(image_tensor)
+        _, predicted = torch.max(output.data, 1)
+        return predicted.item()
+
+
+    def display_prediction(self, frame, label, bbox):
+        # Dynamically calculate the bounding box size
+        height, width, _ = frame.shape
+        box_size = int(min(height, width) * 0.5)  # Make the box cover 50% of the smaller dimension
+        x_center, y_center = width // 2, height // 2
+        x, y = x_center - box_size // 2, y_center - box_size // 2
+
+        # Draw the bounding box
+        cv2.rectangle(frame, (x, y), (x + box_size, y + box_size), (0, 255, 0), 2)
+        cv2.putText(frame, f'Label: {label}', (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+        cv2.imshow("Prediction", frame)
+        cv2.waitKey(0)  # Wait for key press
+        cv2.destroyAllWindows()  # Make sure to destroy all windows to prevent hanging
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
